@@ -2,6 +2,8 @@ class VarInt:
     def __init__(self, value):
         if type(value) != bytes:
             self.value = bytes(self.value_of(value))
+            if len(self.value) == 0:
+                self.value = bytes([0])
         else:
             self.value = value
         self.__compile__()
@@ -32,10 +34,9 @@ class VarInt:
 
         while d >= 128:
             i += 1
-            d = self.value[i]
+            d = self.value[i] if len(self.value) > 0 else 0
 
-        self.value = self.value[:i+1]
-
+        self.value = self.value[:i + 1]
 
     def __len__(self):
         return len(self.value)
@@ -206,4 +207,3 @@ class VarInt:
 
     def __oct__(self):
         return oct(self.__int__())
-

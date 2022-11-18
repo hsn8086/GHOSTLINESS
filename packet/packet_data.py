@@ -35,7 +35,7 @@ class PacketGenerator:
             elif d_type == str:
                 bytes_datas += bytes(VarInt(len(d_data))) + bytes(d_data, 'utf-8')
 
-        bytes_datas = bytes([self.packet_id]) + bytes_datas
+        bytes_datas = bytes(VarInt(self.packet_id)) + bytes_datas
 
         return bytes(VarInt(len(bytes_datas))) + bytes_datas
 
@@ -72,11 +72,16 @@ class Packet:
         self.packet_data = self.packet_data[1:]
         return b
 
-    def get_str(self):
-        i = VarInt(self.packet_data)
-        self.packet_data = self.packet_data[len(i):]
-        s = self.packet_data[:int(i)].decode('utf-8')
-        self.packet_data = self.packet_data[int(i):]
+    def get_byte_array(self) -> bytes:
+        array_len = int(self.get_varint())
+        ba = self.packet_data[:array_len]
+        self.packet_data = self.packet_data[array_len:]
+        return ba
+
+    def get_str(self) -> str:
+        str_len = int(self.get_varint())
+        s = self.packet_data[:str_len].decode('utf-8')
+        self.packet_data = self.packet_data[str_len:]
         return s
 
     def get_int(self):

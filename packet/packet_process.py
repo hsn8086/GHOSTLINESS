@@ -1,7 +1,6 @@
 import json
 import random
 
-import rsa
 from communication_types import VarInt
 from packet.packet_data import PacketGenerator, Packet
 
@@ -38,7 +37,7 @@ class S2C0x00:
                              'name': 'think_of_death',
                              'id': '4566e69f-c907-48ee-8d71-d7ba5aa00d20'}]},
              'description': {'text': server.motd},
-             'favicon': '',
+             'favicon': f'data:image/png;base64,{server.icon}',
              'modinfo': {'type': 'GHOSTLINESS', 'modList': []}}))
         return Packet(bytes(packet_generator))
 
@@ -59,5 +58,5 @@ class S2C0x01:
         packet_generator.add(VarInt(len(server.pub)))
         packet_generator.add(server.pub)
         packet_generator.add(VarInt(4))
-        packet_generator.add(random.randint(0, 255).to_bytes(4, 'big'))
+        packet_generator.add(random.randint(268435456, 4294967295).to_bytes(4, 'big'))
         return Packet(bytes(packet_generator))
