@@ -5,12 +5,12 @@ from threading import Thread
 from OpenSSL import crypto
 from OpenSSL.crypto import *
 
-from packet.packet_data import *
-from packet.packet_process import *
+from packet.packet_utils.packet_data import *
+from packet.packet_utils.packet_process import *
 from plugin_manager import *
 
 
-class Server:
+class MasterServer:
     def __init__(self, name='GHOSTLINESS', motd='A Minecraft Server.', host='127.0.0.1', port=25565, max_players=20):
         self.host = host
         self.port = port
@@ -59,13 +59,14 @@ class Server:
             if status == 1:
                 conn.send(S2C0x00.generate_data(self, ver).__bytes__())
             elif status == 2:
-                pass
                 # print(','.join([hex(int(i)) for i in bytes(S2C0x01.generate_data(self))]))
                 # print(str(bytes(S2C0x01.generate_data(self))))
-                '''pk=S2C0x01.generate_data(self)
+                pk=S2C0x01.generate_data(self)
+
                 print('str1',pk.get_str())
                 print('ba1',pk.get_byte_array())
-                print('pb1',[int(i ) for i in self.pub])
+                #print('pb1',[int(i ) for i in self.pub])
 
-                print('ba2',pk.get_byte_array())'''
+                print('ba2',pk.get_byte_array())
+
                 conn.send(bytes(S2C0x01.generate_data(self)))

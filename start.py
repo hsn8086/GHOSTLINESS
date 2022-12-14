@@ -1,4 +1,4 @@
-from server import Server
+from master_server import MasterServer
 
-server = Server(motd='A Demo GHOSTLINESS', max_players=114514)
+server = MasterServer(motd='A demo of GHOSTLINESS', max_players=114514)
 server.start()

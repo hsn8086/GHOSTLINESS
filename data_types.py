@@ -1,3 +1,6 @@
+from typing import Any
+
+
 class VarInt:
     def __init__(self, value):
         if type(value) != bytes:
@@ -207,3 +210,17 @@ class VarInt:
 
     def __oct__(self):
         return oct(self.__int__())
+
+
+class UnsignedShort(int):
+    def _(self):
+        pass
+
+
+class ByteArray(bytes):
+    def __new__(cls, *args, **kwargs):
+        return super().__new__(cls, *args, **kwargs)
+
+
+if __name__ == '__main__':
+    pass

@@ -1,6 +1,6 @@
 from socket import socket
 
-from communication_types import VarInt
+from data_types import VarInt, ByteArray
 
 
 class PacketGenerator:
@@ -34,6 +34,8 @@ class PacketGenerator:
                 bytes_datas += bytes(d_data)
             elif d_type == str:
                 bytes_datas += bytes(VarInt(len(d_data))) + bytes(d_data, 'utf-8')
+            elif d_type == ByteArray:
+                bytes_datas += bytes(VarInt(len(d_data))) + bytes(d_data)
 
         bytes_datas = bytes(VarInt(self.packet_id)) + bytes_datas
 
