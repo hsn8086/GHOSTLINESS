@@ -1,13 +1,12 @@
 import base64
-import logging
 import os.path
 from threading import Thread
 
 from OpenSSL import crypto
 from OpenSSL.crypto import *
 
-from packet.packet_utils.packet_data import *
 from packet.packet_utils.packet_process import *
+from packet.raw_packet import Packet
 from plugin_manager import *
 
 
@@ -42,7 +41,7 @@ class MasterServer:
     def start(self):
         self.logger.info('Loading plugins...')
         self.plugin_manager.load_all()
-        self.logger.info('Plugins are loaded!')
+        self.logger.info('Plugin all loaded!')
 
         self.logger.info(f"Server started on {self.host}:{self.port}")
         Thread(target=self.listen_thread, name=self.name, daemon=False).start()
@@ -52,7 +51,7 @@ class MasterServer:
 
     def listen_thread(self):
         self.s.bind((self.host, self.port))
-        self.s.listen(self.max_players)
+        self.s.listen(2000)
         while True:
             conn, addr = self.s.accept()
             recv_packet = Packet(conn)
