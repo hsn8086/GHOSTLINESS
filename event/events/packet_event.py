@@ -1,6 +1,5 @@
 import importlib
 
-from packet.base_packet import BasePacket
 from packet.raw_packet import RawPacket
 from ..base_event import BaseEvent
 

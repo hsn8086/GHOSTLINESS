@@ -1,7 +1,7 @@
 from copy import copy
 
 from data_types import *
-from packet.raw_packet import RawPacket
+from .raw_packet import RawPacket
 
 
 class BasePacket:

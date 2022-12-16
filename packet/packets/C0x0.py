@@ -1,5 +1,5 @@
 from data_types import *
-from packet.base_packet import BasePacket
+from ..base_packet import BasePacket
 
 
 class C0x0(BasePacket):

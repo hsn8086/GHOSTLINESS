@@ -1,6 +1,6 @@
 import json
 
-from event.base_event import BaseEvent
+from ...base_event import BaseEvent
 from packet.packet_utils.packet_process import S0x0, S0x1
 
 

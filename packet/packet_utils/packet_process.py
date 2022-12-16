@@ -2,8 +2,8 @@ import json
 import random
 
 from data_types import ByteArray
-from packet.packet_utils.packet_data import PacketGenerator
-from packet.raw_packet import RawPacket
+from .packet_data import PacketGenerator
+from ..raw_packet import RawPacket
 
 
 class C0x0:
