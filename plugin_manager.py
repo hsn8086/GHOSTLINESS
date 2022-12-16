@@ -36,17 +36,17 @@ class PluginManger:
             if 'name' in plugin_info:
                 name = plugin_info['name']
             else:
-                # todo:日志输出:无法加载插件
+                self.logger.error(f'"{file_path}" cannot be loaded. The key named "name" in the configuration file is indeed')
                 return False
             if 'main' in plugin_info:
                 module_name = f'plugins.{name}.{".".join(plugin_info["main"].split(".")[:-1])}'
             else:
-                # todo:日志输出:无法加载插件
+                self.logger.error(f'"{name}" cannot be loaded. The key named "main" in the configuration file is indeed')
                 return False
             if 'version' in plugin_info:
                 ver = plugin_info["version"]
             else:
-                # todo:日志输出:无法加载插件
+                self.logger.error(f'"{name}" cannot be loaded. The key named "version" in the configuration file is indeed')
                 return False
             zf.extractall(os.path.join('plugins', name))
 
