@@ -1,4 +1,5 @@
 import base64
+import logging
 import os.path
 from threading import Thread
 
@@ -19,7 +20,8 @@ class MasterServer:
         self.max_players = max_players
         self.current_players = 0
         self.s = socket()
-        self.plugins = PluginManger()
+
+        self.logger = logging.getLogger(__name__)
         pk = crypto.PKey()
         pk.generate_key(TYPE_RSA, 1024)
 
@@ -35,8 +37,14 @@ class MasterServer:
         else:
             self.icon = ''
 
+        self.plugin_manager = PluginManger(self)
+
     def start(self):
-        print("Server started on {}:{}".format(self.host, self.port))
+        self.logger.info('Loading plugins...')
+        self.plugin_manager.load_all()
+        self.logger.info('Plugins are loaded!')
+
+        self.logger.info(f"Server started on {self.host}:{self.port}")
         Thread(target=self.listen_thread, name=self.name, daemon=False).start()
 
     def stop(self):
@@ -55,18 +63,17 @@ class MasterServer:
         if packet.id.__int__() == 0:
             address, port, status, ver = C2S0x00.get_data(packet)
 
-            self.plugins.run('on_handshake', conn, addr, int(ver), status, packet)
             if status == 1:
                 conn.send(S2C0x00.generate_data(self, ver).__bytes__())
             elif status == 2:
                 # print(','.join([hex(int(i)) for i in bytes(S2C0x01.generate_data(self))]))
                 # print(str(bytes(S2C0x01.generate_data(self))))
-                pk=S2C0x01.generate_data(self)
+                pk = S2C0x01.generate_data(self)
 
-                print('str1',pk.get_str())
-                print('ba1',pk.get_byte_array())
-                #print('pb1',[int(i ) for i in self.pub])
+                print('str1', pk.get_str())
+                print('ba1', pk.get_byte_array())
+                # print('pb1',[int(i ) for i in self.pub])
 
-                print('ba2',pk.get_byte_array())
+                print('ba2', pk.get_byte_array())
 
                 conn.send(bytes(S2C0x01.generate_data(self)))
