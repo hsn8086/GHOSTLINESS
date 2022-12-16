@@ -59,5 +59,4 @@ class S0x1:
         packet_generator.add(server.name)
         packet_generator.add(ByteArray(server.pub))
         packet_generator.add(ByteArray(random.randint(268435456, 4294967295).to_bytes(4, 'big')))
-        print(packet_generator.datas)
         return RawPacket(bytes(packet_generator))

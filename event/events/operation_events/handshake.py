@@ -1,14 +1,14 @@
 import json
 
+import packet.packets.S0x1
 from ...base_event import BaseEvent
 from packet.packet_utils.packet_process import S0x0, S0x1
 
 
-
 class HandshakeEvent(BaseEvent):
-    def __init__(self, conn,server, ver, addr, port, state):
+    def __init__(self, conn, server, ver, addr, port, state):
         super().__init__()
-        self.server=server
+        self.server = server
         self.conn = conn
         self.ver = ver
         self.addr = addr
@@ -28,5 +28,7 @@ class HandshakeEvent(BaseEvent):
             # print('pb1',[int(i ) for i in self.pub])
 
             print('ba2', pk.get_byte_array())'''
-
-            self.conn.send(bytes(S0x1.generate_data(self)))
+            p1 = packet.packets.S0x1.S0x1()
+            p1.from_raw_packet(S0x1.generate_data(self.server))
+            print(p1)
+            self.conn.send(p1.__bytes__())

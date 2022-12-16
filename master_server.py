@@ -8,7 +8,6 @@ from OpenSSL.crypto import *
 
 from event.event_manager import EventManager
 from event.events.packet_event import PacketRecvEvent
-from packet.packet_utils.packet_process import *
 from packet.raw_packet import RawPacket
 from plugin_manager import *
 
@@ -46,7 +45,7 @@ class MasterServer:
         self.plugin_manager.load_all()
         self.logger.info('Plugin all loaded!')
 
-        self.logger.info(f"Server started on {self.host}:{self.port}")
+        self.logger.info(f"Server started on {self.host}:{self.port}.")
         Thread(target=self.listen_thread, name=self.name, daemon=False).start()
 
     def stop(self):
@@ -58,25 +57,7 @@ class MasterServer:
         while True:
             conn, addr = self.s.accept()
             recv_packet = RawPacket(conn)
+            logging.getLogger(__name__).debug(bytes(recv_packet))
             self.event_manager.create_event(PacketRecvEvent, (self.event_manager, conn, self, recv_packet))
             # self.packet_process(conn, addr, recv_packet)
-            #print('[{}:{}] {}'.format(addr[0], addr[1], ','.join([hex(int(i)) for i in recv_packet.__bytes__()])))
-
-    def packet_process(self, conn, addr, packet: RawPacket):
-        if packet.id.__int__() == 0:
-            address, port, status, ver = C0x0.get_data(packet)
-
-            if status == 1:
-                conn.send(S0x0.generate_data(self, ver).__bytes__())
-            elif status == 2:
-                # print(','.join([hex(int(i)) for i in bytes(S2C0x01.generate_data(self))]))
-                # print(str(bytes(S2C0x01.generate_data(self))))
-                pk = S0x1.generate_data(self)
-
-                print('str1', pk.get_str())
-                print('ba1', pk.get_byte_array())
-                # print('pb1',[int(i ) for i in self.pub])
-
-                print('ba2', pk.get_byte_array())
-
-                conn.send(bytes(S0x1.generate_data(self)))
+            # print('[{}:{}] {}'.format(addr[0], addr[1], ','.join([hex(int(i)) for i in recv_packet.__bytes__()])))

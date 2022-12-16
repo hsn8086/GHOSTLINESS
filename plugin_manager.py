@@ -35,18 +35,22 @@ class PluginManger:
             plugin_info = json.load(zf.open('plugin.json', 'r'))
             if 'name' in plugin_info:
                 name = plugin_info['name']
+                if name in self.plugins:
+                    self.logger.error(
+                        f'"{file_path}" cannot be loaded. A plugin with the same name already exists.')
+                    return False
             else:
-                self.logger.error(f'"{file_path}" cannot be loaded. The key named "name" in the configuration file is indeed')
+                self.logger.error(f'"{file_path}" cannot be loaded. The key named "name" in the configuration file is indeed.')
                 return False
             if 'main' in plugin_info:
                 module_name = f'plugins.{name}.{".".join(plugin_info["main"].split(".")[:-1])}'
             else:
-                self.logger.error(f'"{name}" cannot be loaded. The key named "main" in the configuration file is indeed')
+                self.logger.error(f'"{name}" cannot be loaded. The key named "main" in the configuration file is indeed.')
                 return False
             if 'version' in plugin_info:
                 ver = plugin_info["version"]
             else:
-                self.logger.error(f'"{name}" cannot be loaded. The key named "version" in the configuration file is indeed')
+                self.logger.error(f'"{name}" cannot be loaded. The key named "version" in the configuration file is indeed.')
                 return False
             zf.extractall(os.path.join('plugins', name))
 
@@ -54,7 +58,7 @@ class PluginManger:
         self.plugins[name] = module
         if plugin_info["main"].split(".")[-1] in dir(module):
             getattr(module, plugin_info["main"].split(".")[-1])(self.server)
-        self.logger.info(f'"{name}" is loaded! ver: {ver}')
+        self.logger.info(f'"{name}" is loaded! ver: {ver}.')
         return True
 
     def unload(self, name):

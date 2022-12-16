@@ -60,7 +60,10 @@ class BasePacket:
                 datas = datas[1:]
 
             elif i == ByteArray:
-                array_len = int(self.get_varint())
+                array_len = VarInt(datas)
+                datas = datas[len(array_len):]
+
+                array_len = int(array_len)
                 rt = datas[:array_len]
                 datas = datas[array_len:]
 
@@ -68,7 +71,7 @@ class BasePacket:
                 str_len = VarInt(datas)
                 datas = datas[len(str_len):]
 
-                str_len=int(str_len)
+                str_len = int(str_len)
 
                 rt = datas[:str_len].decode('utf-8')
                 datas = datas[str_len:]
@@ -78,6 +81,52 @@ class BasePacket:
                 datas = datas[2:]
             elif i == UnsignedShort:
                 rt = int.from_bytes(datas[:2], 'big', signed=False)
+                datas = datas[2:]
+            else:
+                raise TypeError('Unrecognizable type.')
+            rt_list.append(rt)
+        return rt_list
+
+    def get_data_list_raw(self) -> list:
+        datas = copy(self.datas)
+        rt_list = []
+        for i in self.fields_structure:
+            if i == VarInt:
+                temp = VarInt(datas)
+                rt = datas[:len(temp)]
+                datas = datas[len(temp):]
+
+            elif i == bytes:
+                temp = datas[0]
+                rt = datas[:1]
+                datas = datas[1:]
+
+            elif i == ByteArray:
+                array_len = VarInt(datas)
+                datas = datas[len(array_len):]
+
+                array_len = int(array_len)
+                temp = datas[:array_len]
+                rt = datas[:array_len]
+                datas = datas[array_len:]
+
+            elif i == str:
+                str_len = VarInt(datas)
+                datas = datas[len(str_len):]
+
+                str_len = int(str_len)
+
+                temp = datas[:str_len].decode('utf-8')
+                rt = datas[:str_len]
+                datas = datas[str_len:]
+
+            elif i == int:
+                temp = int.from_bytes(datas[:2], 'big')
+                rt = datas[:2]
+                datas = datas[2:]
+            elif i == UnsignedShort:
+                temp = int.from_bytes(datas[:2], 'big', signed=False)
+                rt = datas[:2]
                 datas = datas[2:]
             else:
                 raise TypeError('Unrecognizable type.')
@@ -100,3 +149,36 @@ class BasePacket:
             raise wc
         for i in args:
             self.__iadd__(i)
+
+    def __str__(self):
+        display_list_raw = []
+        display_list = []
+        display_type_list = []
+
+        data_list_raw = self.get_data_list_raw()
+        data_list = self.get_data_list()
+
+        for idx in range(len(data_list)):
+            raw_data = data_list_raw[idx]
+            data = data_list[idx]
+            d_type = self.fields_structure[idx]
+
+            d_type = f'{d_type.__name__}({len(raw_data)})'
+            raw_data = ','.join([hex(k)[2:] for k in raw_data])
+            data = str(data)
+
+            max_len = max(len(data), len(raw_data), len(d_type))
+
+            data += (max_len - len(data)) * ' '
+            raw_data += (max_len - len(raw_data)) * ' '
+            d_type += (max_len - len(d_type)) * ' '
+
+            display_list.append(data)
+            display_list_raw.append(raw_data)
+            display_type_list.append(d_type)
+
+        return \
+            f'Packet: {type(self).__name__}  PacketID: {self.packet_id}\n' \
+            f'types:    |{"|".join(display_type_list)}|\n' \
+            f'raw_data: |{"|".join(display_list_raw)}|\n' \
+            f'data:     |{"|".join(display_list)}|'

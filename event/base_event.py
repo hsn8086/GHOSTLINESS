@@ -1,6 +1,9 @@
+import os.path
+
+
 class BaseEvent:
     def __init__(self):
-        self.cancel=False
+        self.cancel = False
 
     def run(self):
         pass

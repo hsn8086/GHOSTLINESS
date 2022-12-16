@@ -12,4 +12,5 @@ class C0x0Event(BaseEvent):
         self.packet = packet
 
     def run(self):
+
         self._e_mgr.create_event(HandshakeEvent, (self.conn, self.server, *self.packet.read()))
