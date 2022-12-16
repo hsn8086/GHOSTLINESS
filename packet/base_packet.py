@@ -77,3 +77,17 @@ class BasePacket:
 
     def __bytes__(self):
         return self.compile()
+
+    def read(self):
+        return tuple(self.get_data_list())
+
+    @staticmethod
+    def _write_check(*args):
+        pass
+
+    def write(self, *args):
+        wc = self._write_check(*args)
+        if wc:
+            raise wc
+        for i in args:
+            self.__add__(i)
