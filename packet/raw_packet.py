@@ -3,7 +3,7 @@ from socket import socket
 from data_types import VarInt
 
 
-class Packet:
+class RawPacket:
     def __init__(self, packet_data):
         if type(packet_data) == socket:
             conn = packet_data

@@ -1,12 +1,15 @@
 import base64
 import os.path
+from socket import socket
 from threading import Thread
 
 from OpenSSL import crypto
 from OpenSSL.crypto import *
 
+from event.event_manager import EventManager
+from event.events.packet_event import PacketRecvEvent
 from packet.packet_utils.packet_process import *
-from packet.raw_packet import Packet
+from packet.raw_packet import RawPacket
 from plugin_manager import *
 
 
@@ -35,7 +38,7 @@ class MasterServer:
                 self.icon = base64.b64encode(f.read()).decode('utf8')
         else:
             self.icon = ''
-
+        self.event_manager = EventManager()
         self.plugin_manager = PluginManger(self)
 
     def start(self):
@@ -54,20 +57,21 @@ class MasterServer:
         self.s.listen(2000)
         while True:
             conn, addr = self.s.accept()
-            recv_packet = Packet(conn)
-            self.packet_process(conn, addr, recv_packet)
-            print('[{}:{}] {}'.format(addr[0], addr[1], ','.join([hex(int(i)) for i in recv_packet.__bytes__()])))
+            recv_packet = RawPacket(conn)
+            self.event_manager.create_event(PacketRecvEvent, (self.event_manager, conn, self, recv_packet))
+            # self.packet_process(conn, addr, recv_packet)
+            #print('[{}:{}] {}'.format(addr[0], addr[1], ','.join([hex(int(i)) for i in recv_packet.__bytes__()])))
 
-    def packet_process(self, conn, addr, packet: Packet):
+    def packet_process(self, conn, addr, packet: RawPacket):
         if packet.id.__int__() == 0:
-            address, port, status, ver = C2S0x00.get_data(packet)
+            address, port, status, ver = C0x0.get_data(packet)
 
             if status == 1:
-                conn.send(S2C0x00.generate_data(self, ver).__bytes__())
+                conn.send(S0x0.generate_data(self, ver).__bytes__())
             elif status == 2:
                 # print(','.join([hex(int(i)) for i in bytes(S2C0x01.generate_data(self))]))
                 # print(str(bytes(S2C0x01.generate_data(self))))
-                pk = S2C0x01.generate_data(self)
+                pk = S0x1.generate_data(self)
 
                 print('str1', pk.get_str())
                 print('ba1', pk.get_byte_array())
@@ -75,4 +79,4 @@ class MasterServer:
 
                 print('ba2', pk.get_byte_array())
 
-                conn.send(bytes(S2C0x01.generate_data(self)))
+                conn.send(bytes(S0x1.generate_data(self)))

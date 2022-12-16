@@ -3,12 +3,12 @@ import random
 
 from data_types import ByteArray
 from packet.packet_utils.packet_data import PacketGenerator
-from packet.raw_packet import Packet
+from packet.raw_packet import RawPacket
 
 
-class C2S0x00:
+class C0x0:
     @staticmethod
-    def get_data(packet: Packet):
+    def get_data(packet: RawPacket):
         # Handshake
         # Get the protocol version
 
@@ -26,9 +26,10 @@ class C2S0x00:
         return address, port, status, ver
 
 
-class S2C0x00:
+class S0x0:
     @staticmethod
     def generate_data(server, ver):
+
         packet_generator = PacketGenerator(0)
 
         packet_generator.add(json.dumps(
@@ -40,10 +41,10 @@ class S2C0x00:
              'description': {'text': server.motd},
              'favicon': f'data:image/png;base64,{server.icon}',
              'modinfo': {'type': 'GHOSTLINESS', 'modList': []}}))
-        return Packet(bytes(packet_generator))
+        return RawPacket(bytes(packet_generator))
 
 
-class S2C0x01:
+class S0x1:
     @staticmethod
     def generate_data(server):
         packet_generator = PacketGenerator(1)
@@ -59,4 +60,4 @@ class S2C0x01:
         packet_generator.add(ByteArray(server.pub))
         packet_generator.add(ByteArray(random.randint(268435456, 4294967295).to_bytes(4, 'big')))
         print(packet_generator.datas)
-        return Packet(bytes(packet_generator))
+        return RawPacket(bytes(packet_generator))

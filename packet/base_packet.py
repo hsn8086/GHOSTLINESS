@@ -1,6 +1,7 @@
 from copy import copy
 
 from data_types import *
+from packet.raw_packet import RawPacket
 
 
 class BasePacket:
@@ -10,7 +11,10 @@ class BasePacket:
         self.packet_id = 0
         self.datas = bytes()
 
-    def __add__(self, other):
+    def from_raw_packet(self, raw_packet: RawPacket):
+        self.datas = raw_packet.packet_data
+
+    def __iadd__(self, other):
         d_type = self.fields_structure[self.fields_count]
         if type(other) != d_type:
             raise TypeError(f'The field should be "{d_type}" and not "{type(other)}"!')
@@ -36,7 +40,7 @@ class BasePacket:
         rt_packet = bytes(VarInt(self.packet_id)) + self.datas
         return bytes(VarInt(len(rt_packet))) + rt_packet
 
-    def __getattribute__(self, item):
+    def __getattr__(self, item):
         if type(item) != int:
             raise TypeError('The subscript must be int.')
         if item > len(self.fields_structure):
@@ -49,7 +53,7 @@ class BasePacket:
         for i in self.fields_structure:
             if i == VarInt:
                 rt = VarInt(datas)
-                datas = datas[len(i):]
+                datas = datas[len(rt):]
 
             elif i == bytes:
                 rt = datas[0]
@@ -61,7 +65,11 @@ class BasePacket:
                 datas = datas[array_len:]
 
             elif i == str:
-                str_len = int(self.get_varint())
+                str_len = VarInt(datas)
+                datas = datas[len(str_len):]
+
+                str_len=int(str_len)
+
                 rt = datas[:str_len].decode('utf-8')
                 datas = datas[str_len:]
 
@@ -70,6 +78,7 @@ class BasePacket:
                 datas = datas[2:]
             elif i == UnsignedShort:
                 rt = int.from_bytes(datas[:2], 'big', signed=False)
+                datas = datas[2:]
             else:
                 raise TypeError('Unrecognizable type.')
             rt_list.append(rt)
@@ -90,4 +99,4 @@ class BasePacket:
         if wc:
             raise wc
         for i in args:
-            self.__add__(i)
+            self.__iadd__(i)

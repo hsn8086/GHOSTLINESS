@@ -1,9 +1,8 @@
-from .base_event import BaseEvent
-from .event_manager import EventManager
+from ..base_event import BaseEvent
 
 
 class Event(BaseEvent):
-    def __init__(self, e_mgr: EventManager, e, args):
+    def __init__(self, e_mgr, e, args):
         super().__init__()
         self._e_mgr = e_mgr
         self.event = e
