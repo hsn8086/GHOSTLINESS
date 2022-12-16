@@ -1,16 +1,18 @@
 import base64
 import os.path
+from socket import socket
 from threading import Thread
 
 from OpenSSL import crypto
 from OpenSSL.crypto import *
 
-from packet.packet_data import *
-from packet.packet_process import *
+from event.event_manager import EventManager
+from event.events.packet_event import PacketRecvEvent
+from packet.raw_packet import RawPacket
 from plugin_manager import *
 
 
-class Server:
+class MasterServer:
     def __init__(self, name='GHOSTLINESS', motd='A Minecraft Server.', host='127.0.0.1', port=25565, max_players=20):
         self.host = host
         self.port = port
@@ -19,7 +21,8 @@ class Server:
         self.max_players = max_players
         self.current_players = 0
         self.s = socket()
-        self.plugins = PluginManger()
+
+        self.logger = logging.getLogger(__name__)
         pk = crypto.PKey()
         pk.generate_key(TYPE_RSA, 1024)
 
@@ -34,9 +37,15 @@ class Server:
                 self.icon = base64.b64encode(f.read()).decode('utf8')
         else:
             self.icon = ''
+        self.event_manager = EventManager()
+        self.plugin_manager = PluginManger(self)
 
     def start(self):
-        print("Server started on {}:{}".format(self.host, self.port))
+        self.logger.info('Loading plugins...')
+        self.plugin_manager.load_all()
+        self.logger.info('Plugin all loaded!')
+
+        self.logger.info(f"Server started on {self.host}:{self.port}.")
         Thread(target=self.listen_thread, name=self.name, daemon=False).start()
 
     def stop(self):
@@ -44,28 +53,11 @@ class Server:
 
     def listen_thread(self):
         self.s.bind((self.host, self.port))
-        self.s.listen(self.max_players)
+        self.s.listen(2000)
         while True:
             conn, addr = self.s.accept()
-            recv_packet = Packet(conn)
-            self.packet_process(conn, addr, recv_packet)
-            print('[{}:{}] {}'.format(addr[0], addr[1], ','.join([hex(int(i)) for i in recv_packet.__bytes__()])))
-
-    def packet_process(self, conn, addr, packet: Packet):
-        if packet.id.__int__() == 0:
-            address, port, status, ver = C2S0x00.get_data(packet)
-
-            self.plugins.run('on_handshake', conn, addr, int(ver), status, packet)
-            if status == 1:
-                conn.send(S2C0x00.generate_data(self, ver).__bytes__())
-            elif status == 2:
-                pass
-                # print(','.join([hex(int(i)) for i in bytes(S2C0x01.generate_data(self))]))
-                # print(str(bytes(S2C0x01.generate_data(self))))
-                '''pk=S2C0x01.generate_data(self)
-                print('str1',pk.get_str())
-                print('ba1',pk.get_byte_array())
-                print('pb1',[int(i ) for i in self.pub])
-
-                print('ba2',pk.get_byte_array())'''
-                conn.send(bytes(S2C0x01.generate_data(self)))
+            recv_packet = RawPacket(conn)
+            logging.getLogger(__name__).debug(bytes(recv_packet))
+            self.event_manager.create_event(PacketRecvEvent, (self.event_manager, conn, self, recv_packet))
+            # self.packet_process(conn, addr, recv_packet)
+            # print('[{}:{}] {}'.format(addr[0], addr[1], ','.join([hex(int(i)) for i in recv_packet.__bytes__()])))
