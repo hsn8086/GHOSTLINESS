@@ -223,6 +223,15 @@ class Byte(bytes):
     ...
 
 
+class Array(list):
+    def __init__(self, types=None, seq=None):
+        if types is None:
+            types = bytes
+        if seq is None:
+            types_list = ()
+        super().__init__(seq)
+
+
 class ByteArray(bytes):
     def __new__(cls, *args, **kwargs):
         return super().__new__(cls, *args, **kwargs)

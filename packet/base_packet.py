@@ -19,27 +19,35 @@ class BasePacket:
         d_type = self.fields_structure[self.fields_count]
         if type(other) != d_type:
             raise TypeError(f'The field should be "{d_type}" and not "{type(other)}"!')
+        add_data = self._add(other, d_type)
+        self.datas += add_data
+        self.fields_count += 1
+        return self
+
+    def _add(self, value, d_type):
+
         if d_type == bool:
-            if other:
+            if value:
                 add_data = bytes([1])
             else:
                 add_data = bytes([0])
         elif d_type == Byte:
-            add_data = other[0]
+            add_data = value[0]
         elif d_type == int or d_type == VarInt:
-            add_data = bytes(other)
+            add_data = bytes(value)
         elif d_type == str:
-            add_data = bytes(VarInt(len(other))) + bytes(other, 'utf-8')
+            add_data = bytes(VarInt(len(value))) + bytes(value, 'utf-8')
         elif d_type == ByteArray or d_type == bytes:
-            add_data = bytes(VarInt(len(other))) + bytes(other)
+            add_data = bytes(VarInt(len(value))) + bytes(value)
         elif d_type == UUID:
-            add_data = bytes(VarInt(len(str(other)))) + bytes(str(other), 'utf-8')
-
+            add_data = bytes(VarInt(len(str(value)))) + bytes(str(value), 'utf-8')
+        elif d_type == Array:
+            add_data = bytes(VarInt(len(value)))
+            for i in value:
+                add_data += self._add(i, type(i))
         else:
-            add_data = bytes(other)
-        self.datas += add_data
-        self.fields_count += 1
-        return self
+            add_data = bytes(value)
+        return add_data
 
     def compile(self):
         rt_packet = bytes(VarInt(self.packet_id)) + self.datas
@@ -56,97 +64,133 @@ class BasePacket:
         datas = copy(self.datas)
         rt_list = []
         for i in self.fields_structure:
-            if i == VarInt:
-                rt = VarInt(datas)
-                datas = datas[len(rt):]
-
-            elif i == Byte:
-                rt = datas[0]
-                datas = datas[1:]
-
-            elif i == ByteArray or i == bytes:
-                array_len = VarInt(datas)
-                datas = datas[len(array_len):]
-
-                array_len = int(array_len)
-                rt = datas[:array_len]
-                datas = datas[array_len:]
-
-            elif i == str or i == UUID:
-                str_len = VarInt(datas)
-                datas = datas[len(str_len):]
-
-                str_len = int(str_len)
-
-                rt = datas[:str_len].decode('utf-8')
-                datas = datas[str_len:]
-
-            elif i == int:
-                rt = int.from_bytes(datas[:4], 'big')
-                datas = datas[4:]
-            elif i == UnsignedShort:
-                rt = int.from_bytes(datas[:2], 'big', signed=False)
-                datas = datas[2:]
-            elif i == Long:
-                rt = int.from_bytes(datas[:8], 'big', signed=False)
-                datas = datas[8:]
-
-            elif i == bool:
-                rt = (datas[:1] == 0x01)
-                datas = datas[1:]
-            else:
-                raise TypeError('Unrecognizable type.')
+            rt, cut_len = self._get(datas, i)
+            datas = datas[cut_len:]
             rt_list.append(rt)
+
         return rt_list
+
+    def _get(self, datas, d_type):
+        if d_type == VarInt:
+            rt = VarInt(datas)
+            return rt, len(rt)
+
+        elif d_type == Byte:
+            rt = datas[:1]
+            return rt, 1
+
+        elif d_type == ByteArray or d_type == bytes:
+            array_len = VarInt(datas)
+            cut_len = len(array_len)
+
+            array_len = int(array_len)
+            rt = datas[cut_len:cut_len + array_len]
+            cut_len += array_len
+            return rt, cut_len
+
+        elif d_type == str or d_type == UUID:
+            str_len = VarInt(datas)
+            cut_len = len(str_len)
+
+            str_len = int(str_len)
+
+            rt = datas[cut_len:cut_len + str_len].decode('utf-8')
+            cut_len += str_len
+            return rt, cut_len
+
+        elif d_type == int:
+            rt = int.from_bytes(datas[:4], 'big')
+            return rt, 4
+        elif d_type == UnsignedShort:
+            rt = int.from_bytes(datas[:2], 'big', signed=False)
+            return rt, 2
+        elif d_type == Long:
+            rt = int.from_bytes(datas[:8], 'big', signed=False)
+            return rt, 8
+
+        elif d_type == bool:
+            rt = (datas[:1] == 0x01)
+            return rt, 1
+        elif d_type == Array:
+            array_len = VarInt(datas)
+            l1 = len(array_len)
+
+            array_len = int(array_len)
+            rt_list = []
+            for _ in range(array_len):
+                rt, cl = self._get(d_type, type(d_type))
+                rt_list.append(rt)
+                l1 += cl
+
+            return '[' + ','.join(rt_list) + ']', l1
+        else:
+            raise TypeError('Unrecognizable type.')
 
     def get_data_list_raw(self) -> list:
         datas = copy(self.datas)
         rt_list = []
         for i in self.fields_structure:
-            if i == VarInt:
-                temp = VarInt(datas)
-                rt = datas[:len(temp)]
-                datas = datas[len(temp):]
-
-            elif i == Byte:
-
-                rt = datas[:1]
-                datas = datas[1:]
-
-            elif i == ByteArray:
-                array_len = VarInt(datas)
-                datas = datas[len(array_len):]
-
-                array_len = int(array_len)
-                rt = datas[:array_len]
-                datas = datas[array_len:]
-
-            elif i == str or i == UUID:
-                str_len = VarInt(datas)
-                datas = datas[len(str_len):]
-
-                str_len = int(str_len)
-
-                rt = datas[:str_len]
-                datas = datas[str_len:]
-
-            elif i == int:
-                rt = datas[:4]
-                datas = datas[4:]
-            elif i == UnsignedShort:
-
-                rt = datas[:2]
-                datas = datas[2:]
-            elif i == Long:
-                rt = datas[:8]
-                datas = datas[8:]
-            elif i == bool:
-                rt = datas[:1]
-                datas = datas[1:]
-            else:
-                raise TypeError(f'Unrecognizable type: {i.__name__}')
+            rt, cut_len = self._get_raw(datas, i)
+            datas = datas[cut_len:]
             rt_list.append(rt)
         return rt_list
+
+    def _get_raw(self, datas, d_type):
+        if d_type == VarInt:
+            temp = VarInt(datas)
+            rt = datas[:len(temp)]
+            return rt, len(temp)
+
+        elif d_type == Byte:
+            temp = datas[:1]
+            return temp, 1
+
+        elif d_type == ByteArray or d_type == bytes:
+            array_len = VarInt(datas)
+            cut_len = len(array_len)
+
+            array_len = int(array_len)
+            rt = datas[:array_len]
+            cut_len += array_len
+            return rt, cut_len
+
+        elif d_type == str or d_type == UUID:
+            str_len = VarInt(datas)
+            cut_len = len(str_len)
+
+            str_len = int(str_len)
+
+            rt = datas[:str_len]
+            cut_len += str_len
+            return rt, cut_len
+
+        elif d_type == int:
+            rt = datas[:4]
+            return rt, 4
+        elif d_type == UnsignedShort:
+            rt = datas[:2]
+            return rt, 2
+        elif d_type == Long:
+            rt = datas[:8]
+            return rt, 8
+
+        elif d_type == bool:
+            rt = datas[:1]
+            return rt, 1
+        elif d_type == Array:
+            array_len = VarInt(datas)
+            l1 = len(array_len)
+
+            array_len = int(array_len)
+            rt = bytes([])
+            for _ in range(array_len):
+                temp, cl = self._get_raw(d_type, type(d_type))
+                l1 += cl
+                rt += temp
+
+            return rt, l1
+        else:
+            raise TypeError('Unrecognizable type.')
 
     def __bytes__(self):
         return self.compile()
