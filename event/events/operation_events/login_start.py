@@ -17,10 +17,7 @@ class LoginStart(BaseEvent):
 
     def run(self):
         p = S0x2()
-        if self.has_uuid:
-            p += self.uuid
-        else:
-            p += uuid3(uuid.NAMESPACE_OID, self.name)
+        p += self.uuid if self.has_uuid else uuid3(uuid.NAMESPACE_OID, self.name)
         p += self.name
         # p += VarInt(0)
         print(p)
