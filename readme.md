@@ -1,4 +1,13 @@
 # GHOSTLINESS
+
 A Minecraft server (incomplete)
+
 ## Completed functions:
-- MOTD display (including icons and descriptions)
+
+- Handshake
+- Status(e.g., MOTD display)
+- login(Offline login only)
+
+## Under Development:
+
+- Login(play)
