@@ -219,6 +219,10 @@ class Long(int):
         return int.to_bytes(self, 8, "big", signed=True)
 
 
+class Byte(bytes):
+    ...
+
+
 class ByteArray(bytes):
     def __new__(cls, *args, **kwargs):
         return super().__new__(cls, *args, **kwargs)

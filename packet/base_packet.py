@@ -1,4 +1,5 @@
 from copy import copy
+from uuid import UUID
 
 from data_types import *
 from .raw_packet import RawPacket
@@ -23,14 +24,17 @@ class BasePacket:
                 add_data = bytes([1])
             else:
                 add_data = bytes([0])
-        elif d_type == bytes:
-            add_data = other
+        elif d_type == Byte:
+            add_data = other[0]
         elif d_type == int or d_type == VarInt:
             add_data = bytes(other)
         elif d_type == str:
             add_data = bytes(VarInt(len(other))) + bytes(other, 'utf-8')
-        elif d_type == ByteArray:
+        elif d_type == ByteArray or d_type == bytes:
             add_data = bytes(VarInt(len(other))) + bytes(other)
+        elif d_type == UUID:
+            add_data = bytes(VarInt(len(str(other)))) + bytes(str(other), 'utf-8')
+
         else:
             add_data = bytes(other)
         self.datas += add_data
@@ -56,11 +60,11 @@ class BasePacket:
                 rt = VarInt(datas)
                 datas = datas[len(rt):]
 
-            elif i == bytes:
+            elif i == Byte:
                 rt = datas[0]
                 datas = datas[1:]
 
-            elif i == ByteArray:
+            elif i == ByteArray or i == bytes:
                 array_len = VarInt(datas)
                 datas = datas[len(array_len):]
 
@@ -68,7 +72,7 @@ class BasePacket:
                 rt = datas[:array_len]
                 datas = datas[array_len:]
 
-            elif i == str:
+            elif i == str or i == UUID:
                 str_len = VarInt(datas)
                 datas = datas[len(str_len):]
 
@@ -86,6 +90,10 @@ class BasePacket:
             elif i == Long:
                 rt = int.from_bytes(datas[:8], 'big', signed=False)
                 datas = datas[8:]
+
+            elif i == bool:
+                rt = (datas[:1] == 0x01)
+                datas = datas[1:]
             else:
                 raise TypeError('Unrecognizable type.')
             rt_list.append(rt)
@@ -100,7 +108,7 @@ class BasePacket:
                 rt = datas[:len(temp)]
                 datas = datas[len(temp):]
 
-            elif i == bytes:
+            elif i == Byte:
 
                 rt = datas[:1]
                 datas = datas[1:]
@@ -113,7 +121,7 @@ class BasePacket:
                 rt = datas[:array_len]
                 datas = datas[array_len:]
 
-            elif i == str:
+            elif i == str or i == UUID:
                 str_len = VarInt(datas)
                 datas = datas[len(str_len):]
 
@@ -132,8 +140,11 @@ class BasePacket:
             elif i == Long:
                 rt = datas[:8]
                 datas = datas[8:]
+            elif i == bool:
+                rt = datas[:1]
+                datas = datas[1:]
             else:
-                raise TypeError('Unrecognizable type.')
+                raise TypeError(f'Unrecognizable type: {i.__name__}')
             rt_list.append(rt)
         return rt_list
 

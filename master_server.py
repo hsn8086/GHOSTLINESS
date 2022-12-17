@@ -3,6 +3,7 @@ import os.path
 import threading
 from socket import socket
 from threading import Thread
+from time import sleep
 
 from OpenSSL import crypto
 from OpenSSL.crypto import *
@@ -79,8 +80,16 @@ class MasterServer:
                 self.client_state_dict[str(addr)] = 'handshake'
             try:
                 recv_packet = RawPacket(conn)
-                self.event_manager.create_event(PacketRecvEvent, (self.event_manager, conn, addr, self, recv_packet))
-                # self.packet_process(conn, addr, recv_packet)
-                # print('[{}:{}] {}'.format(addr[0], addr[1], ','.join([hex(int(i)) for i in recv_packet.__bytes__()])))
-            except ConnectionAbortedError:
+                if len(recv_packet.raw_data) > 0:
+                    self.event_manager.create_event(PacketRecvEvent,
+                                                    (self.event_manager, conn, addr, self, recv_packet))
+                else:
+                    sleep(0.1)
+                    # self.packet_process(conn, addr, recv_packet)
+                    # print('[{}:{}] {}'.format(addr[0], addr[1], ','.join([hex(int(i)) for i in recv_packet.__bytes__()])))
+            except (ConnectionAbortedError, ConnectionResetError):
+                if str(addr) in self.client_state_dict:
+                    self.client_state_dict.pop(str(addr))
+                if str(addr) in self.client_ver_dict:
+                    self.client_ver_dict.pop(str(addr))
                 loop = False
