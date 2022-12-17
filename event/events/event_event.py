@@ -9,4 +9,4 @@ class Event(BaseEvent):
         self.args = args
 
     def run(self):
-        self._e_mgr.create_event(self.event, self.args,original_event=False)
+        self._e_mgr.create_event(self.event, self.args, original_event=False)

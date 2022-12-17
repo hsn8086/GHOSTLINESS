@@ -8,9 +8,10 @@ class RawPacket:
         if type(packet_data) == socket:
             conn = packet_data
             data = conn.recv(4)
-            packet_len = VarInt(data)
 
-            data += conn.recv(int(packet_len) + len(packet_len) - 4)
+            packet_len = VarInt(data)
+            if int(packet_len) + len(packet_len) - 4 > 0:
+                data += conn.recv(int(packet_len) + len(packet_len) - 4)
             self.raw_data = data
 
         elif type(packet_data) == bytes:

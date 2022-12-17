@@ -35,6 +35,7 @@ class BasePacket:
             add_data = bytes(other)
         self.datas += add_data
         self.fields_count += 1
+        return self
 
     def compile(self):
         rt_packet = bytes(VarInt(self.packet_id)) + self.datas
@@ -77,11 +78,14 @@ class BasePacket:
                 datas = datas[str_len:]
 
             elif i == int:
-                rt = int.from_bytes(datas[:2], 'big')
-                datas = datas[2:]
+                rt = int.from_bytes(datas[:4], 'big')
+                datas = datas[4:]
             elif i == UnsignedShort:
                 rt = int.from_bytes(datas[:2], 'big', signed=False)
                 datas = datas[2:]
+            elif i == Long:
+                rt = int.from_bytes(datas[:8], 'big', signed=False)
+                datas = datas[8:]
             else:
                 raise TypeError('Unrecognizable type.')
             rt_list.append(rt)
@@ -97,7 +101,7 @@ class BasePacket:
                 datas = datas[len(temp):]
 
             elif i == bytes:
-                temp = datas[0]
+
                 rt = datas[:1]
                 datas = datas[1:]
 
@@ -106,7 +110,6 @@ class BasePacket:
                 datas = datas[len(array_len):]
 
                 array_len = int(array_len)
-                temp = datas[:array_len]
                 rt = datas[:array_len]
                 datas = datas[array_len:]
 
@@ -116,18 +119,19 @@ class BasePacket:
 
                 str_len = int(str_len)
 
-                temp = datas[:str_len].decode('utf-8')
                 rt = datas[:str_len]
                 datas = datas[str_len:]
 
             elif i == int:
-                temp = int.from_bytes(datas[:4], 'big')
                 rt = datas[:4]
                 datas = datas[4:]
             elif i == UnsignedShort:
-                temp = int.from_bytes(datas[:2], 'big', signed=False)
+
                 rt = datas[:2]
                 datas = datas[2:]
+            elif i == Long:
+                rt = datas[:8]
+                datas = datas[8:]
             else:
                 raise TypeError('Unrecognizable type.')
             rt_list.append(rt)

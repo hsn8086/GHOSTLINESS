@@ -1,5 +1,6 @@
 import base64
 import os.path
+import threading
 from socket import socket
 from threading import Thread
 
@@ -23,6 +24,7 @@ class MasterServer:
         self.s = socket()
 
         self.client_state_dict = {}
+        self.client_ver_dict={}
 
         self.logger = logging.getLogger(__name__)
         pk = crypto.PKey()
@@ -48,20 +50,37 @@ class MasterServer:
         self.logger.info('Plugin all loaded!')
 
         self.logger.info(f"Server started on {self.host}:{self.port}.")
-        Thread(target=self.listen_thread, name=self.name, daemon=False).start()
+        t = Thread(target=self.listen_thread, name=self.name, daemon=True)
+        t.start()
+        loop = True
+        while loop:
+            try:
+                t.join(timeout=1)
+            except KeyboardInterrupt:
+                loop = False
+        self.stop()
 
     def stop(self):
-        print('server stopped\nname:{}'.format(self.name))
+        self.logger.info('server stopped.')
 
     def listen_thread(self):
         self.s.bind((self.host, self.port))
         self.s.listen(2000)
         while True:
             conn, addr = self.s.accept()
-            if addr not in self.client_state_dict:
-                self.client_state_dict[addr] = 'handshake'
-            recv_packet = RawPacket(conn)
-            logging.getLogger(__name__).debug(bytes(recv_packet))
-            self.event_manager.create_event(PacketRecvEvent, (self.event_manager, conn,addr, self, recv_packet))
-            # self.packet_process(conn, addr, recv_packet)
-            # print('[{}:{}] {}'.format(addr[0], addr[1], ','.join([hex(int(i)) for i in recv_packet.__bytes__()])))
+
+            t = threading.Thread(target=self.client_recv_thread, args=(conn, addr), daemon=True)
+            t.start()
+
+    def client_recv_thread(self, conn, addr):
+        loop = True
+        while loop:
+            if str(addr) not in self.client_state_dict:
+                self.client_state_dict[str(addr)] = 'handshake'
+            try:
+                recv_packet = RawPacket(conn)
+                self.event_manager.create_event(PacketRecvEvent, (self.event_manager, conn, addr, self, recv_packet))
+                # self.packet_process(conn, addr, recv_packet)
+                # print('[{}:{}] {}'.format(addr[0], addr[1], ','.join([hex(int(i)) for i in recv_packet.__bytes__()])))
+            except ConnectionAbortedError:
+                loop = False

@@ -11,7 +11,10 @@ class PacketRecvEvent(BaseEvent):
         self.conn = conn
         self.addr = addr
         self.server = server
-        self.state = server.client_state_dict[addr]
+        if str(addr) in server.client_state_dict:
+            self.state = server.client_state_dict[str(addr)]
+        else:
+            self.state = 'handshake'
         self._e_mgr = e_mgr
 
         try:
@@ -25,7 +28,8 @@ class PacketRecvEvent(BaseEvent):
             logging.getLogger(__name__).debug(self.packet)
 
             # 取包对应事件
-            event_module = importlib.import_module(f'event.events.packet_events.{self.state}.C0x{str(self.packet.packet_id)}')
+            event_module = importlib.import_module(
+                f'event.events.packet_events.{self.state}.C0x{str(self.packet.packet_id)}')
 
             self.event = getattr(event_module,
                                  f'{self.state[0].upper() + self.state[1:]}C0x{str(self.packet.packet_id)}Event')
@@ -35,4 +39,4 @@ class PacketRecvEvent(BaseEvent):
 
     def run(self):
         # 创建事件
-        self._e_mgr.create_event(self.event, (self._e_mgr, self.conn, self.server, self.packet))
+        self._e_mgr.create_event(self.event, (self._e_mgr, self.conn, self.addr, self.server, self.packet))

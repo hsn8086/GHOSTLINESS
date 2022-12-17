@@ -219,7 +219,7 @@ class UnsignedShort(int):
 
 class Long(int):
     def __bytes__(self):
-        int.to_bytes(self, 8, "big", signed=True)
+        return int.to_bytes(self, 8, "big", signed=True)
 
 
 class ByteArray(bytes):
