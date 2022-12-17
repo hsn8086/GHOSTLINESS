@@ -20,6 +20,5 @@ class LoginStart(BaseEvent):
         p += self.uuid if self.has_uuid else uuid3(uuid.NAMESPACE_OID, self.name)
         p += self.name
         # p += VarInt(0)
-        print(p)
         self.conn.send(bytes(p))
         self.server.client_state_dict[str(self.addr)] = 'play'
