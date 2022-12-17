@@ -22,6 +22,8 @@ class MasterServer:
         self.current_players = 0
         self.s = socket()
 
+        self.client_state_dict = {}
+
         self.logger = logging.getLogger(__name__)
         pk = crypto.PKey()
         pk.generate_key(TYPE_RSA, 1024)
@@ -56,8 +58,10 @@ class MasterServer:
         self.s.listen(2000)
         while True:
             conn, addr = self.s.accept()
+            if addr not in self.client_state_dict:
+                self.client_state_dict[addr] = 'handshake'
             recv_packet = RawPacket(conn)
             logging.getLogger(__name__).debug(bytes(recv_packet))
-            self.event_manager.create_event(PacketRecvEvent, (self.event_manager, conn, self, recv_packet))
+            self.event_manager.create_event(PacketRecvEvent, (self.event_manager, conn,addr, self, recv_packet))
             # self.packet_process(conn, addr, recv_packet)
             # print('[{}:{}] {}'.format(addr[0], addr[1], ','.join([hex(int(i)) for i in recv_packet.__bytes__()])))

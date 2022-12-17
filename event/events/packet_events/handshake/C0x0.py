@@ -1,9 +1,9 @@
-from packet.packets.C0x0 import C0x0
-from ..operation_events.handshake import HandshakeEvent
-from ...base_event import BaseEvent
+from packet.packets.handshake.C0x0 import C0x0
+from event.events.operation_events.handshake import HandshakeEvent
+from event.base_event import BaseEvent
 
 
-class C0x0Event(BaseEvent):
+class HandshakeC0x0Event(BaseEvent):
     def __init__(self, e_mgr, conn, server, packet: C0x0):
         super().__init__()
         self.server = server

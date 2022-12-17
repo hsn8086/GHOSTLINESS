@@ -121,9 +121,9 @@ class BasePacket:
                 datas = datas[str_len:]
 
             elif i == int:
-                temp = int.from_bytes(datas[:2], 'big')
-                rt = datas[:2]
-                datas = datas[2:]
+                temp = int.from_bytes(datas[:4], 'big')
+                rt = datas[:4]
+                datas = datas[4:]
             elif i == UnsignedShort:
                 temp = int.from_bytes(datas[:2], 'big', signed=False)
                 rt = datas[:2]

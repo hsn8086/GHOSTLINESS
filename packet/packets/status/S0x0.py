@@ -1,4 +1,4 @@
-from ..base_packet import BasePacket
+from packet.base_packet import BasePacket
 
 
 class S0x0(BasePacket):

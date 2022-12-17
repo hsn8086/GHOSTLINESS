@@ -213,8 +213,13 @@ class VarInt:
 
 
 class UnsignedShort(int):
-    def _(self):
-        pass
+    def __bytes__(self):
+        int.to_bytes(self, 2, "big", signed=False)
+
+
+class Long(int):
+    def __bytes__(self):
+        int.to_bytes(self, 8, "big", signed=True)
 
 
 class ByteArray(bytes):

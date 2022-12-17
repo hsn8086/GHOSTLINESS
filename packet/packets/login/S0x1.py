@@ -1,5 +1,5 @@
 from data_types import ByteArray
-from ..base_packet import BasePacket
+from packet.base_packet import BasePacket
 
 
 class S0x1(BasePacket):

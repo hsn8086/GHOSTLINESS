@@ -33,11 +33,11 @@ class S0x0:
         packet_generator = PacketGenerator(0)
 
         packet_generator.add(json.dumps(
-            {'version': {'name': 'GHOSTLINESS', 'protocol': int(ver)},
+            {'version': {'name': '1.8', 'protocol': int(ver)},
              'players': {'max': server.max_players, 'online': server.current_players,
                          'sample': [{
-                             'name': 'think_of_death',
-                             'id': '4566e69f-c907-48ee-8d71-d7ba5aa00d20'}]},
+                             'name': 'hongshin',
+                             'id': '3ce4f579-48fb-4b2b-973b-72bb283eeaa1'}]},
              'description': {'text': server.motd},
              'favicon': f'data:image/png;base64,{server.icon}',
              'modinfo': {'type': 'GHOSTLINESS', 'modList': []}}))
