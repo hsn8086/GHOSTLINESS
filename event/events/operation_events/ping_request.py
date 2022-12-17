@@ -1,5 +1,4 @@
 from data_types import Long
-from packet.packet_utils.packet_data import PacketGenerator
 from packet.packets.status.S0x1 import S0x1
 from ...base_event import BaseEvent
 

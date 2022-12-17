@@ -24,7 +24,7 @@ class MasterServer:
         self.s = socket()
 
         self.client_state_dict = {}
-        self.client_ver_dict={}
+        self.client_ver_dict = {}
 
         self.logger = logging.getLogger(__name__)
         pk = crypto.PKey()

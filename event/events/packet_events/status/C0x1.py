@@ -1,6 +1,6 @@
-from packet.packets.handshake.C0x0 import C0x0
-from event.events.operation_events.ping_request import PingRequestEvent
 from event.base_event import BaseEvent
+from event.events.operation_events.ping_request import PingRequestEvent
+from packet.packets.handshake.C0x0 import C0x0
 
 
 class StatusC0x1Event(BaseEvent):

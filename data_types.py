@@ -1,6 +1,3 @@
-from typing import Any
-
-
 class VarInt:
     def __init__(self, value):
         if type(value) != bytes:

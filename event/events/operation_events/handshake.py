@@ -1,8 +1,8 @@
 import socket
 
 import packet.packets.login.S0x1
+from packet.packet_utils.packet_process import S0x1
 from ...base_event import BaseEvent
-from packet.packet_utils.packet_process import S0x0, S0x1
 
 
 class HandshakeEvent(BaseEvent):

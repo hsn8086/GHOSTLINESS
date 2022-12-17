@@ -1,6 +1,6 @@
-from packet.packets.handshake.C0x0 import C0x0
-from event.events.operation_events.handshake import HandshakeEvent
 from event.base_event import BaseEvent
+from event.events.operation_events.handshake import HandshakeEvent
+from packet.packets.handshake.C0x0 import C0x0
 
 
 class HandshakeC0x0Event(BaseEvent):

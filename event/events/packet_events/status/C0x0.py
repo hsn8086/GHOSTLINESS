@@ -1,6 +1,6 @@
-from packet.packets.handshake.C0x0 import C0x0
-from event.events.operation_events.status_request import StatusRequestEvent
 from event.base_event import BaseEvent
+from event.events.operation_events.status_request import StatusRequestEvent
+from packet.packets.handshake.C0x0 import C0x0
 
 
 class StatusC0x0Event(BaseEvent):

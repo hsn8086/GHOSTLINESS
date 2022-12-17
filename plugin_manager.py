@@ -1,10 +1,8 @@
+import importlib
 import json
 import logging
 import os
-import importlib
-import sys
 import zipfile
-from types import ModuleType
 
 
 class PluginManger:

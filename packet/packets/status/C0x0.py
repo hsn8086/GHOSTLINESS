@@ -1,4 +1,3 @@
-from data_types import Long
 from packet.base_packet import BasePacket
 
 
