@@ -1,3 +1,6 @@
+from nbt.nbt import NBTFile
+
+
 class VarInt:
     def __init__(self, value):
         if type(value) != bytes:
@@ -235,6 +238,48 @@ class Array(list):
 class ByteArray(bytes):
     def __new__(cls, *args, **kwargs):
         return super().__new__(cls, *args, **kwargs)
+
+
+class BF:
+    def __init__(self):
+        self.data = bytes([])
+
+    def write(self, data):
+        self.data += data
+
+    def __str__(self):
+        return str(self.__bytes__())
+
+    def __bytes__(self):
+        return self.data
+
+    def __getattr__(self, item):
+        return getattr(self.data, item)
+
+
+class NBT(NBTFile):
+    def __bytes__(self):
+        bf = BF()
+        self.write_file(filename=None, buffer=bf, fileobj=None)
+        return bytes(bf)
+
+
+class Position:
+    def __init__(self, data=None):
+        if type(data) == tuple:
+            self.x, self.y, self.z = data
+        elif type(data) == bytes:
+            val = int.from_bytes(data, "big", signed=True)
+            self.x = val >> 38
+            self.y = val & 0xFFF
+            self.z = (val & 0x3FFFFFFFFF) >> 12
+
+    def __bytes__(self):
+        return ((self.x & 0x3FFFFFF) << 38 | (self.z & 0x3FFFFFF) << 12 | (self.y & 0xFFF)).to_bytes(8, "big",
+                                                                                                     signed=True)
+
+    def __str__(self):
+        return str((self.x, self.y, self.z))
 
 
 if __name__ == '__main__':
