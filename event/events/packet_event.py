@@ -16,7 +16,7 @@ class PacketRecvEvent(BaseEvent):
         else:
             self.state = 'handshake'
         self._e_mgr = e_mgr
-        # logging.getLogger(__name__).critical(str(raw_packet.id)+' '+str([hex(i) for i in bytes(raw_packet)]))
+        logging.getLogger(__name__).critical(str(raw_packet.id) + ' ' + str([hex(i) for i in bytes(raw_packet)]))
         try:
             # 取对应状态与包id所在的module
             if len(raw_packet.raw_data) > 0:

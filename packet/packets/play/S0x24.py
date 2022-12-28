@@ -12,7 +12,7 @@ class S0x24(BasePacket):
              Byte,  # Gamemode      0: Survival, 1: Creative, 2: Adventure, 3: Spectator.
              Byte,
              # Previous Gamemode        0: survival, 1: creative, 2: adventure, 3: spectator. The hardcore flag is not included. The previous gamemode. Defaults to -1 if there is no previous gamemode. (More information needed)
-             Array(str),  # Dimension Names     Identifiers for all dimensions on the server.
+             Array,  # Dimension Names     Identifiers for all dimensions on the server.
              NBT,
              # Registry Codec       Represents certain registries that are sent from the server and are applied on the client.
              str,  # Dimension Type        Identifier	Name of the dimension type being spawned into.

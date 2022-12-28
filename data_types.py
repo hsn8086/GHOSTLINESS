@@ -228,11 +228,13 @@ class Byte(bytes):
 
 class Array(list):
     def __init__(self, types=None, seq=None):
-        if types is None:
-            types = bytes
-        if seq is None:
-            types_list = ()
-        super().__init__(seq)
+        self.types_list = seq
+        self.types = types
+        if self.types is None:
+            self.types = bytes
+        if self.types_list is None:
+            self.types_list = ()
+        super().__init__(self.types_list)
 
 
 class ByteArray(bytes):

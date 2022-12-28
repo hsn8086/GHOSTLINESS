@@ -32,9 +32,9 @@ class BasePacket:
             else:
                 add_data = bytes([0])
         elif d_type == Byte:
-            add_data = value[0]
+            add_data = value[:1]
         elif d_type == int or d_type == VarInt:
-            add_data = bytes(value)
+            add_data = int.to_bytes(value, 4, 'big', signed=True)
         elif d_type == str:
             add_data = bytes(VarInt(len(value))) + bytes(value, 'utf-8')
         elif d_type == ByteArray or d_type == bytes:
@@ -45,6 +45,8 @@ class BasePacket:
             add_data = bytes(VarInt(len(value)))
             for i in value:
                 add_data += self._add(i, type(i))
+        elif d_type == NBT:
+            add_data = self._add(ByteArray(value), ByteArray)
         else:
             add_data = bytes(value)
         return add_data
@@ -79,7 +81,7 @@ class BasePacket:
             rt = datas[:1]
             return rt, 1
 
-        elif d_type == ByteArray or d_type == bytes:
+        elif d_type == ByteArray or d_type == bytes or d_type == NBT:
             array_len = VarInt(datas)
             cut_len = len(array_len)
 
@@ -88,15 +90,20 @@ class BasePacket:
             cut_len += array_len
             return rt, cut_len
 
-        elif d_type == str or d_type == UUID:
+        elif d_type == str:
             str_len = VarInt(datas)
             cut_len = len(str_len)
 
             str_len = int(str_len)
 
-            rt = datas[cut_len:cut_len + str_len].decode('utf-8')
+            rt = datas[cut_len:cut_len + str_len].decode('utf8')
             cut_len += str_len
             return rt, cut_len
+        elif d_type == UUID:
+            uuid_p = ''.join([hex(i)[-2:] for i in datas[:16]])
+            full_uuid = f'{uuid_p[0:8]}-{uuid_p[8:12]}-{uuid_p[12:16]}-{uuid_p[16:20]}-{uuid_p[20:32]}'
+            rt = UUID(full_uuid)
+            return rt, 16
 
         elif d_type == int:
             rt = int.from_bytes(datas[:4], 'big')
@@ -109,7 +116,7 @@ class BasePacket:
             return rt, 8
 
         elif d_type == bool:
-            rt = (datas[:1] == 0x01)
+            rt = (datas[:1] == b'\x01')
             return rt, 1
         elif d_type == Array:
             array_len = VarInt(datas)
@@ -118,13 +125,16 @@ class BasePacket:
             array_len = int(array_len)
             rt_list = []
             for _ in range(array_len):
-                rt, cl = self._get(d_type, type(d_type))
+                rt, cl = self._get(datas[l1:], str)
                 rt_list.append(rt)
                 l1 += cl
 
             return '[' + ','.join(rt_list) + ']', l1
+        elif d_type == Position:
+            rt = Position(datas[:8])
+            return rt, 8
         else:
-            raise TypeError('Unrecognizable type.')
+            raise TypeError(f'Unrecognizable type:{d_type}')
 
     def get_data_list_raw(self) -> list:
         datas = copy(self.datas)
@@ -145,7 +155,7 @@ class BasePacket:
             temp = datas[:1]
             return temp, 1
 
-        elif d_type == ByteArray or d_type == bytes:
+        elif d_type == ByteArray or d_type == bytes or d_type == NBT:
             array_len = VarInt(datas)
             cut_len = len(array_len)
 
@@ -184,13 +194,16 @@ class BasePacket:
             array_len = int(array_len)
             rt = bytes([])
             for _ in range(array_len):
-                temp, cl = self._get_raw(d_type, type(d_type))
+                temp, cl = self._get_raw(datas[l1:], str)
                 l1 += cl
                 rt += temp
 
             return rt, l1
+        elif d_type == Position:
+            rt = datas[:8]
+            return rt, 8
         else:
-            raise TypeError('Unrecognizable type.')
+            raise TypeError(f'Unrecognizable type: {d_type}')
 
     def __bytes__(self):
         return self.compile()
