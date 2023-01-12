@@ -33,14 +33,14 @@ class BasePacket:
                 add_data = bytes([0])
         elif d_type == Byte:
             add_data = value[:1]
-        elif d_type == int or d_type == VarInt:
+        elif d_type == int:
             add_data = int.to_bytes(value, 4, 'big', signed=True)
         elif d_type == str:
             add_data = bytes(VarInt(len(value))) + bytes(value, 'utf-8')
         elif d_type == ByteArray or d_type == bytes:
             add_data = bytes(VarInt(len(value))) + bytes(value)
         elif d_type == UUID:
-            add_data = bytes(VarInt(len(str(value)))) + bytes(str(value), 'utf-8')
+            add_data = value.bytes
         elif d_type == Array:
             add_data = bytes(VarInt(len(value)))
             for i in value:
@@ -101,10 +101,8 @@ class BasePacket:
             return rt, cut_len
         elif d_type == UUID:
             uuid_p = ''.join([hex(i)[-2:] for i in datas[:16]])
-            full_uuid = f'{uuid_p[0:8]}-{uuid_p[8:12]}-{uuid_p[12:16]}-{uuid_p[16:20]}-{uuid_p[20:32]}'
-            rt = UUID(full_uuid)
+            rt = UUID(bytes=datas[:16])
             return rt, 16
-
         elif d_type == int:
             rt = int.from_bytes(datas[:4], 'big')
             return rt, 4
