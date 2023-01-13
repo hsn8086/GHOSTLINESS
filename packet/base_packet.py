@@ -42,6 +42,7 @@ class BasePacket:
         elif d_type == UUID:
             add_data = value.bytes
         elif d_type == Array:
+
             add_data = bytes(VarInt(len(value)))
             for i in value:
                 add_data += self._add(i, type(i))
@@ -242,7 +243,10 @@ class BasePacket:
             data += (max_len - len(data)) * ' '
             raw_data += (max_len - len(raw_data)) * ' '
             d_type += (max_len - len(d_type)) * ' '
-
+            if max_len > 64:
+                data = data[:64] + "..."
+                raw_data = raw_data[:64] + "..."
+                d_type = d_type[:64] + "   "
             display_list.append(data)
             display_list_raw.append(raw_data)
             display_type_list.append(d_type)

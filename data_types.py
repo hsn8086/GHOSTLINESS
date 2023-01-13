@@ -222,6 +222,15 @@ class Long(int):
         return int.to_bytes(self, 8, "big", signed=True)
 
 
+class Short(int):
+    def __bytes__(self):
+        return int.to_bytes(self, 2, "big", signed=True)
+
+
+class Double(float):
+    ...
+
+
 class Byte(bytes):
     ...
 
