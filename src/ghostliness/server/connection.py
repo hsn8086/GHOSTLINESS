@@ -15,17 +15,9 @@ from ghostliness.protocol.containers import PacketContainer
 from ghostliness.protocol.errors import PacketDecodeError, ProtocolError
 from ghostliness.protocol.framing import decode_frame, encode_frame, read_frame
 from ghostliness.protocol.registry import PacketDirection, PacketState
-from ghostliness.server.events import PacketEvent, PlayerJoinEvent, PlayerQuitEvent
+from ghostliness.server.events import PacketEvent
 from ghostliness.server.player import Player
-from ghostliness.world import Position
-from ghostliness.world_data import (
-    WORLD_NAMES,
-    empty_heightmaps,
-    empty_light_masks,
-    empty_tags,
-    encode_empty_chunk_data,
-    minimal_registries,
-)
+from ghostliness.world_data import empty_tags, minimal_registries
 
 if TYPE_CHECKING:
     from ghostliness.server.core import GhostlinessServer
@@ -158,7 +150,7 @@ class Connection:
                     packet.fields.get("desired_chunks_per_tick"),
                 )
             case "serverbound.player_loaded":
-                logger.info("player loaded id={}", self.connection_id)
+                self.server.runtime.mark_player_loaded(self.connection_id)
             case "serverbound.client_tick_end":
                 logger.trace("client tick end id={}", self.connection_id)
             case (
@@ -268,93 +260,7 @@ class Connection:
         if self.profile is None:
             raise ProtocolError("cannot enter play without a profile")
         self.state = PacketState.PLAY
-        player = Player(
-            profile=self.profile,
-            position=Position(),
-            connection_id=self.connection_id,
-        )
-        self.player = player
-        self.server.players[self.connection_id] = player
-        self.last_keep_alive_sent = time.monotonic()
-        logger.info("enter play id={} username={}", self.connection_id, player.name)
-        await self._send_initial_play_state()
-        await self.send_chat({"text": f"Welcome, {player.name}"})
-        await self.server.events.publish("player_join", PlayerJoinEvent(player))
-        logger.info("player join published id={} username={}", self.connection_id, player.name)
-
-    async def _send_initial_play_state(self) -> None:
-        view_distance = self.server.config.server.view_distance
-        spawn = self.server.world.spawn
-        logger.info(
-            "play init start id={} view_distance={} spawn=({}, {}, {})",
-            self.connection_id,
-            view_distance,
-            spawn.x,
-            spawn.y,
-            spawn.z,
-        )
-        await self.send(
-            "clientbound.login",
-            {
-                "entity_id": 1,
-                "world_names": WORLD_NAMES,
-                "max_players": self.server.config.server.max_players,
-                "view_distance": view_distance,
-                "simulation_distance": view_distance,
-                "gamemode": 1,
-                "dimension_name": "minecraft:overworld",
-                "online_mode": self.server.config.server.online_mode,
-            },
-        )
-        await self.send("clientbound.update_view_distance", {"view_distance": view_distance})
-        await self.send("clientbound.update_view_position", {"chunk_x": 0, "chunk_z": 0})
-        await self.send(
-            "clientbound.spawn_position",
-            {
-                "dimension": "minecraft:overworld",
-                "x": int(spawn.x),
-                "y": int(spawn.y),
-                "z": int(spawn.z),
-            },
-        )
-        await self.send(
-            "clientbound.game_event",
-            {"event": 13, "param": 0.0},
-        )
-        await self.send("clientbound.chunk_batch_start", {})
-        sent_chunks = 0
-        for chunk_x in range(-view_distance, view_distance + 1):
-            for chunk_z in range(-view_distance, view_distance + 1):
-                await self.send(
-                    "clientbound.map_chunk",
-                    {
-                        "x": chunk_x,
-                        "z": chunk_z,
-                        "heightmaps": empty_heightmaps(),
-                        "chunk_data": encode_empty_chunk_data(),
-                        "lights": empty_light_masks(),
-                    },
-                )
-                sent_chunks += 1
-        logger.info("initial chunks sent id={} count={}", self.connection_id, sent_chunks)
-        await self.send("clientbound.chunk_batch_finished", {"batch_size": sent_chunks})
-        self.pending_teleport_id = 1
-        await self.send(
-            "clientbound.position",
-            {
-                "teleport_id": self.pending_teleport_id,
-                "x": spawn.x,
-                "y": spawn.y,
-                "z": spawn.z,
-                "yaw": spawn.yaw,
-                "pitch": spawn.pitch,
-            },
-        )
-        logger.info(
-            "play init complete id={} teleport_id={}",
-            self.connection_id,
-            self.pending_teleport_id,
-        )
+        await self.server.runtime.enter_play(self, self.profile)
 
     async def send_chat(self, content: dict[str, object]) -> None:
         await self.send("clientbound.system_chat", {"content": content, "overlay": False})
@@ -451,11 +357,7 @@ class Connection:
 
     async def close(self) -> None:
         if self.player is not None:
-            await self.server.events.publish(
-                "player_quit",
-                PlayerQuitEvent(self.player, "disconnect"),
-            )
-            self.server.players.pop(self.connection_id, None)
+            await self.server.runtime.remove_player(self.connection_id, "disconnect")
             self.player = None
         self.writer.close()
         with contextlib.suppress(ConnectionError):

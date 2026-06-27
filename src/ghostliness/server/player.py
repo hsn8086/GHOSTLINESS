@@ -11,6 +11,7 @@ class Player:
     profile: GameProfile
     position: Position
     connection_id: str
+    entity_id: int = 1
 
     @property
     def name(self) -> str:

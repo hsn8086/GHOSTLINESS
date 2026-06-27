@@ -21,6 +21,14 @@ class PluginContext:
     events: EventBus
     protocol: ProtocolManager
 
+    @property
+    def runtime(self):
+        return self.server.runtime
+
+    @property
+    def world(self):
+        return self.server.world
+
 
 @dataclass(slots=True)
 class LoadedPlugin:

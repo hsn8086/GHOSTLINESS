@@ -12,6 +12,9 @@ mode = "offline"
 compression_threshold = -1
 
 [world]
+name = "world"
+path = "worlds/world"
+storage = "ghostliness"
 generator = "void"
 
 [plugins]

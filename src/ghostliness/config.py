@@ -28,6 +28,9 @@ class NetworkConfig:
 
 @dataclass(frozen=True, slots=True)
 class WorldConfig:
+    name: str = "world"
+    path: str = "worlds/world"
+    storage: str = "ghostliness"
     generator: str = "void"
 
 
@@ -82,6 +85,9 @@ mode = "offline"
 compression_threshold = -1
 
 [world]
+name = "world"
+path = "worlds/world"
+storage = "ghostliness"
 generator = "void"
 
 [plugins]

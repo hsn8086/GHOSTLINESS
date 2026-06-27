@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from loguru import logger
 
@@ -16,7 +17,9 @@ from ghostliness.protocol.registry import PacketRegistry
 from ghostliness.protocol.versions import JAVA_26_2
 from ghostliness.server.connection import Connection
 from ghostliness.server.player import Player
+from ghostliness.server.runtime import GameRuntime
 from ghostliness.world import World
+from ghostliness.world_storage import WorldStorage, create_world_storage
 
 
 @dataclass(slots=True)
@@ -27,6 +30,8 @@ class GhostlinessServer:
     protocol: ProtocolManager = field(init=False)
     authenticator: Authenticator = field(init=False)
     world: World = field(init=False)
+    storage: WorldStorage = field(init=False)
+    runtime: GameRuntime = field(init=False)
     players: dict[str, Player] = field(init=False)
     connections: dict[str, Connection] = field(init=False)
     _server: asyncio.Server | None = field(init=False, default=None)
@@ -37,8 +42,13 @@ class GhostlinessServer:
         self.events = EventBus()
         self.protocol = ProtocolManager()
         self.authenticator = Authenticator(self.config.auth.mode)
-        self.world = World(generator=self.config.world.generator)
-        self.players: dict[str, Player] = {}
+        self.world = World(name=self.config.world.name, generator=self.config.world.generator)
+        self.storage = create_world_storage(
+            self.config.world.storage,
+            Path(self.config.world.path),
+        )
+        self.runtime = GameRuntime(self, self.world, self.storage)
+        self.players = self.runtime.players
         self.connections: dict[str, Connection] = {}
         self._server: asyncio.Server | None = None
         self._tick_task: asyncio.Task[None] | None = None
@@ -80,6 +90,7 @@ class GhostlinessServer:
             self._server.close()
             await self._server.wait_closed()
             self._server = None
+        await self.runtime.close()
         logger.info("GHOSTLINESS stopped")
 
     async def _handle_client(
