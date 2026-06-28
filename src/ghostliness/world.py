@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import floor
 from typing import Any
+
+from ghostliness.blocks import AIR, DIRT, GRASS_BLOCK, STONE, BlockState
+
+CHUNK_WIDTH = 16
+CHUNK_FORMAT_VERSION = 1
 
 
 @dataclass(slots=True)
@@ -28,28 +34,6 @@ class BlockPosition:
 
 
 @dataclass(frozen=True, slots=True)
-class BlockState:
-    name: str = "minecraft:air"
-    properties: tuple[tuple[str, str], ...] = ()
-
-    def to_json(self) -> dict[str, object]:
-        return {"name": self.name, "properties": dict(self.properties)}
-
-    @classmethod
-    def from_json(cls, data: dict[str, Any]) -> BlockState:
-        properties = data.get("properties", {})
-        if not isinstance(properties, dict):
-            properties = {}
-        return cls(
-            name=str(data.get("name", "minecraft:air")),
-            properties=tuple(sorted((str(key), str(value)) for key, value in properties.items())),
-        )
-
-
-AIR = BlockState()
-
-
-@dataclass(frozen=True, slots=True)
 class ChunkPosition:
     x: int
     z: int
@@ -60,6 +44,18 @@ class ChunkPosition:
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> ChunkPosition:
         return cls(x=int(data["x"]), z=int(data["z"]))
+
+
+def chunk_position_from_block(position: BlockPosition) -> ChunkPosition:
+    return ChunkPosition(position.x // CHUNK_WIDTH, position.z // CHUNK_WIDTH)
+
+
+def chunk_position_from_world(x: float, z: float) -> ChunkPosition:
+    return ChunkPosition(floor(x) // CHUNK_WIDTH, floor(z) // CHUNK_WIDTH)
+
+
+def local_block_position(position: BlockPosition) -> BlockPosition:
+    return BlockPosition(position.x % CHUNK_WIDTH, position.y, position.z % CHUNK_WIDTH)
 
 
 @dataclass(slots=True)
@@ -79,6 +75,7 @@ class Chunk:
 
     def to_json(self) -> dict[str, object]:
         return {
+            "format_version": CHUNK_FORMAT_VERSION,
             "position": self.position.to_json(),
             "generated_by": self.generated_by,
             "blocks": [
@@ -92,6 +89,9 @@ class Chunk:
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> Chunk:
+        format_version = int(data.get("format_version", 0))
+        if format_version not in {0, CHUNK_FORMAT_VERSION}:
+            raise ValueError(f"unsupported chunk format version: {format_version}")
         chunk = cls(
             position=ChunkPosition.from_json(data["position"]),
             generated_by=str(data.get("generated_by", "void")),
@@ -117,8 +117,23 @@ class World:
     generator: str = "void"
     spawn: Position = field(default_factory=Position)
 
+    def __post_init__(self) -> None:
+        if self.generator == "flat" and self.spawn == Position():
+            self.spawn.y = 65.0
+
     def status_description(self) -> dict[str, str]:
         return {"text": f"{self.generator} world"}
 
     def generate_chunk(self, position: ChunkPosition) -> Chunk:
-        return Chunk(position=position, generated_by=self.generator)
+        chunk = Chunk(position=position, generated_by=self.generator)
+        if self.generator != "flat":
+            return chunk
+
+        for x in range(16):
+            for z in range(16):
+                for y in range(0, 61):
+                    chunk.set_block(BlockPosition(x, y, z), STONE)
+                for y in range(61, 64):
+                    chunk.set_block(BlockPosition(x, y, z), DIRT)
+                chunk.set_block(BlockPosition(x, 64, z), GRASS_BLOCK)
+        return chunk

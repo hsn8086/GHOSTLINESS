@@ -1,7 +1,15 @@
 from typing import Any, cast
 
 from ghostliness.protocol.types import Buffer
-from ghostliness.world_data import empty_tags, encode_empty_chunk_data, minimal_registries
+from ghostliness.world import AIR, DIRT, GRASS_BLOCK, STONE, BlockState, ChunkPosition, World
+from ghostliness.world_data import (
+    block_state_to_protocol_id,
+    empty_tags,
+    encode_chunk_data,
+    encode_empty_chunk_data,
+    heightmaps_for_chunk,
+    minimal_registries,
+)
 
 
 def test_overworld_dimension_type_matches_26_2_required_fields():
@@ -248,10 +256,92 @@ def test_empty_chunk_uses_synchronized_biome_registry_id():
     buffer = Buffer(chunk_data)
 
     assert buffer.read_short() == 0
+    assert buffer.read_short() == 0
     assert buffer.read_unsigned_byte() == 0
     assert buffer.read_varint() == 0
-    assert buffer.read_varint() == 0
     assert buffer.read_unsigned_byte() == 0
-    assert buffer.read_varint() == 0
     assert buffer.read_varint() == 0
     buffer.ensure_consumed()
+
+
+def test_minimal_block_state_protocol_ids_match_26_2_vanilla_defaults():
+    assert block_state_to_protocol_id(AIR) == 0
+    assert block_state_to_protocol_id(STONE) == 1
+    assert block_state_to_protocol_id(GRASS_BLOCK) == 9
+    assert block_state_to_protocol_id(DIRT) == 10
+    assert block_state_to_protocol_id(BlockState("ghostliness:missing")) == 0
+
+
+def test_flat_chunk_data_encodes_non_empty_sections():
+    chunk = World(generator="flat").generate_chunk(ChunkPosition(0, 0))
+    chunk_data = encode_chunk_data(chunk, section_count=5)
+    buffer = Buffer(chunk_data)
+
+    for _ in range(3):
+        full_stone_section = _read_section(buffer)
+        assert full_stone_section["non_air_blocks"] == 4096
+        assert full_stone_section["fluid_count"] == 0
+        assert full_stone_section["block_bits_per_entry"] == 0
+        assert full_stone_section["block_palette"] == [1]
+
+    dirt_section = _read_section(buffer)
+    assert dirt_section["non_air_blocks"] == 4096
+    assert dirt_section["fluid_count"] == 0
+    assert dirt_section["block_bits_per_entry"] == 4
+    assert dirt_section["block_palette"] == [1, 10]
+    assert dirt_section["block_data_longs"] == 256
+
+    top_section = _read_section(buffer)
+    assert top_section["non_air_blocks"] == 256
+    assert top_section["fluid_count"] == 0
+    assert top_section["block_bits_per_entry"] == 4
+    assert top_section["block_palette"] == [9, 0]
+    assert top_section["block_data_longs"] == 256
+
+    buffer.ensure_consumed()
+
+
+def test_flat_chunk_heightmaps_track_top_solid_block():
+    chunk = World(generator="flat").generate_chunk(ChunkPosition(0, 0))
+
+    heightmaps = heightmaps_for_chunk(chunk)
+
+    assert [heightmap["type"] for heightmap in heightmaps] == [1, 4]
+    for heightmap in heightmaps:
+        data = cast(list[int], heightmap["data"])
+        assert len(data) == 37
+        assert _unpack_fixed_width(data, 9, 256) == [65] * 256
+
+
+def _read_section(buffer: Buffer) -> dict[str, object]:
+    section: dict[str, object] = {"non_air_blocks": buffer.read_short()}
+    section["fluid_count"] = buffer.read_short()
+    block_bits_per_entry = buffer.read_unsigned_byte()
+    section["block_bits_per_entry"] = block_bits_per_entry
+    if block_bits_per_entry == 0:
+        section["block_palette"] = [buffer.read_varint()]
+        section["block_data_longs"] = 0
+    else:
+        block_palette = [buffer.read_varint() for _ in range(buffer.read_varint())]
+        section["block_palette"] = block_palette
+        block_data_longs = 4096 // (64 // block_bits_per_entry)
+        section["block_data_longs"] = block_data_longs
+        buffer.read(block_data_longs * 8)
+
+    biome_bits_per_entry = buffer.read_unsigned_byte()
+    section["biome_bits_per_entry"] = biome_bits_per_entry
+    assert biome_bits_per_entry == 0
+    section["biome_palette"] = [buffer.read_varint()]
+    section["biome_data_longs"] = 0
+    return section
+
+
+def _unpack_fixed_width(values: list[int], bits_per_entry: int, count: int) -> list[int]:
+    values_per_long = 64 // bits_per_entry
+    mask = (1 << bits_per_entry) - 1
+    unpacked = []
+    for index in range(count):
+        long_index = index // values_per_long
+        bit_offset = (index % values_per_long) * bits_per_entry
+        unpacked.append((values[long_index] >> bit_offset) & mask)
+    return unpacked

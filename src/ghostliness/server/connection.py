@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 from ghostliness.auth import GameProfile
+from ghostliness.items import ItemStack, hotbar_index_from_creative_slot
 from ghostliness.protocol.containers import PacketContainer
 from ghostliness.protocol.errors import PacketDecodeError, ProtocolError
 from ghostliness.protocol.framing import decode_frame, encode_frame, read_frame
@@ -151,6 +152,16 @@ class Connection:
                 )
             case "serverbound.player_loaded":
                 self.server.runtime.mark_player_loaded(self.connection_id)
+            case "serverbound.set_carried_item":
+                self._handle_set_carried_item(packet)
+            case "serverbound.set_creative_mode_slot":
+                self._handle_set_creative_mode_slot(packet)
+            case "serverbound.container_close":
+                logger.debug(
+                    "container close id={} container_id={}",
+                    self.connection_id,
+                    packet.fields.get("container_id"),
+                )
             case "serverbound.client_tick_end":
                 logger.trace("client tick end id={}", self.connection_id)
             case (
@@ -159,12 +170,113 @@ class Connection:
                 | "serverbound.rotation"
                 | "serverbound.status_only"
             ):
-                self._update_player_position(packet)
+                await self._update_player_position(packet)
+            case "serverbound.player_action":
+                logger.debug(
+                    "player action id={} action={} action_name={} position={} "
+                    "direction={} direction_name={} sequence={}",
+                    self.connection_id,
+                    packet.fields.get("action"),
+                    packet.fields.get("action_name"),
+                    packet.fields.get("position"),
+                    packet.fields.get("direction"),
+                    packet.fields.get("direction_name"),
+                    packet.fields.get("sequence"),
+                )
+                await self.server.runtime.handle_player_action(
+                    self.connection_id,
+                    str(packet.fields["action_name"])
+                    if packet.fields.get("action_name") is not None
+                    else None,
+                    packet.fields["position"],
+                    int(packet.fields["sequence"]),
+                )
+            case "serverbound.player_command":
+                logger.debug(
+                    "player command id={} entity_id={} action={} action_name={} data={}",
+                    self.connection_id,
+                    packet.fields.get("entity_id"),
+                    packet.fields.get("action"),
+                    packet.fields.get("action_name"),
+                    packet.fields.get("data"),
+                )
+            case "serverbound.player_input":
+                logger.trace(
+                    "player input id={} flags={} forward={} backward={} "
+                    "left={} right={} jump={} shift={} sprint={}",
+                    self.connection_id,
+                    packet.fields.get("flags"),
+                    packet.fields.get("forward"),
+                    packet.fields.get("backward"),
+                    packet.fields.get("left"),
+                    packet.fields.get("right"),
+                    packet.fields.get("jump"),
+                    packet.fields.get("shift"),
+                    packet.fields.get("sprint"),
+                )
+            case "serverbound.interact":
+                logger.debug(
+                    "interact id={} entity_id={} hand={} hand_name={} location={} "
+                    "using_secondary_action={}",
+                    self.connection_id,
+                    packet.fields.get("entity_id"),
+                    packet.fields.get("hand"),
+                    packet.fields.get("hand_name"),
+                    packet.fields.get("location"),
+                    packet.fields.get("using_secondary_action"),
+                )
+            case "serverbound.swing":
+                logger.debug(
+                    "swing id={} hand={} hand_name={}",
+                    self.connection_id,
+                    packet.fields.get("hand"),
+                    packet.fields.get("hand_name"),
+                )
+            case "serverbound.use_item_on":
+                logger.debug(
+                    "use item on id={} hand={} hand_name={} hit_result={} sequence={}",
+                    self.connection_id,
+                    packet.fields.get("hand"),
+                    packet.fields.get("hand_name"),
+                    packet.fields.get("hit_result"),
+                    packet.fields.get("sequence"),
+                )
+                await self.server.runtime.handle_use_item_on(
+                    self.connection_id,
+                    int(packet.fields["hand"]),
+                    packet.fields["hit_result"],
+                    int(packet.fields["sequence"]),
+                )
+            case "serverbound.use_item":
+                logger.debug(
+                    "use item id={} hand={} hand_name={} sequence={} y_rot={} x_rot={}",
+                    self.connection_id,
+                    packet.fields.get("hand"),
+                    packet.fields.get("hand_name"),
+                    packet.fields.get("sequence"),
+                    packet.fields.get("y_rot"),
+                    packet.fields.get("x_rot"),
+                )
+                await self.send(
+                    "clientbound.block_changed_ack",
+                    {"sequence": int(packet.fields["sequence"])},
+                )
             case "serverbound.configuration_acknowledged":
                 await self.server.events.publish(
                     "configuration_acknowledged", PacketEvent(self.connection_id, packet)
                 )
             case _:
+                ignored_bytes = packet.fields.get("ignored_bytes")
+                if isinstance(ignored_bytes, int):
+                    logger.debug(
+                        "ignored packet id={} state={} name={} payload_bytes={} payload_hex={}",
+                        self.connection_id,
+                        self.state.value,
+                        packet.name,
+                        ignored_bytes,
+                        _payload_hex(packet.raw_payload),
+                    )
+                    return
                 logger.debug(
                     "unhandled packet id={} state={} name={}",
                     self.connection_id,
@@ -275,6 +387,71 @@ class Connection:
         )
         logger.debug("keepalive sent id={} keep_alive_id={}", self.connection_id, keep_alive_id)
 
+    def _handle_set_carried_item(self, packet: PacketContainer) -> None:
+        if self.player is None:
+            logger.debug(
+                "set carried item before player attached id={} slot={}",
+                self.connection_id,
+                packet.fields.get("slot"),
+            )
+            return
+        slot = int(packet.fields["slot"])
+        if not self.player.inventory.set_selected_slot(slot):
+            logger.warning("invalid carried item slot id={} slot={}", self.connection_id, slot)
+            return
+        stack = self.player.inventory.selected_stack()
+        logger.debug(
+            "carried item selected id={} slot={} item={} count={} supported={}",
+            self.connection_id,
+            slot,
+            stack.item_name,
+            stack.count,
+            stack.components_supported,
+        )
+
+    def _handle_set_creative_mode_slot(self, packet: PacketContainer) -> None:
+        if self.player is None:
+            logger.debug(
+                "creative slot before player attached id={} slot_num={}",
+                self.connection_id,
+                packet.fields.get("slot_num"),
+            )
+            return
+
+        slot_num = int(packet.fields["slot_num"])
+        stack = packet.fields["item_stack"]
+        if not isinstance(stack, ItemStack):
+            logger.warning(
+                "creative slot packet without decoded item stack id={} slot_num={}",
+                self.connection_id,
+                slot_num,
+            )
+            return
+
+        hotbar_slot = hotbar_index_from_creative_slot(slot_num)
+        if hotbar_slot is None:
+            logger.trace(
+                "creative slot ignored id={} slot_num={} item={} count={}",
+                self.connection_id,
+                slot_num,
+                stack.item_name,
+                stack.count,
+            )
+            return
+
+        self.player.inventory.set_hotbar_slot(hotbar_slot, stack)
+        logger.debug(
+            "creative hotbar slot set id={} slot_num={} hotbar_slot={} item={} count={} "
+            "supported={} component_bytes={}",
+            self.connection_id,
+            slot_num,
+            hotbar_slot,
+            stack.item_name,
+            stack.count,
+            stack.components_supported,
+            len(stack.component_patch_bytes),
+        )
+
     async def _handle_keep_alive_response(self, packet: PacketContainer) -> None:
         keep_alive_id = int(packet.fields["keep_alive_id"])
         if self.pending_keep_alive_id == keep_alive_id:
@@ -292,7 +469,7 @@ class Connection:
             PacketEvent(self.connection_id, packet),
         )
 
-    def _update_player_position(self, packet: PacketContainer) -> None:
+    async def _update_player_position(self, packet: PacketContainer) -> None:
         if self.player is None:
             return
         if "x" in packet.fields:
@@ -314,6 +491,7 @@ class Connection:
             self.player.position.yaw,
             self.player.position.pitch,
         )
+        await self.server.runtime.handle_player_moved(self.connection_id)
 
     async def send(
         self,
@@ -380,3 +558,9 @@ def _loggable_value(value: object) -> object:
             items.append(f"<{len(value) - 8} more items>")
         return items
     return value
+
+
+def _payload_hex(payload: bytes, limit: int = 64) -> str:
+    if len(payload) <= limit:
+        return payload.hex()
+    return f"{payload[:limit].hex()}...(+{len(payload) - limit} bytes)"

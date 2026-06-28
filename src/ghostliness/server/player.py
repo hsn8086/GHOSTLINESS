@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ghostliness.auth import GameProfile
+from ghostliness.items import PlayerInventory
 from ghostliness.world import Position
 
 
@@ -12,6 +13,7 @@ class Player:
     position: Position
     connection_id: str
     entity_id: int = 1
+    inventory: PlayerInventory = field(default_factory=PlayerInventory)
 
     @property
     def name(self) -> str:

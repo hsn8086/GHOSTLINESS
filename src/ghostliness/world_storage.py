@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Protocol
 
+from loguru import logger
+
 from ghostliness.world import Chunk, ChunkPosition
 
 
@@ -30,10 +32,24 @@ class GhostlinessWorldStorage:
         chunk_path = self._chunk_path(position)
         if not chunk_path.exists():
             return None
-        data = json.loads(chunk_path.read_text(encoding="utf-8"))
-        if not isinstance(data, dict):
+        try:
+            data = json.loads(chunk_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("failed to read chunk path={} error={}", chunk_path, exc)
             return None
-        return Chunk.from_json(data)
+        if not isinstance(data, dict):
+            logger.warning("invalid chunk document path={} reason=not_object", chunk_path)
+            return None
+        try:
+            return Chunk.from_json(data)
+        except (KeyError, TypeError, ValueError) as exc:
+            logger.warning(
+                "invalid chunk document path={} format_version={} error={}",
+                chunk_path,
+                data.get("format_version", 0),
+                exc,
+            )
+            return None
 
     def save_chunk(self, chunk: Chunk) -> None:
         self.chunks_path.mkdir(parents=True, exist_ok=True)

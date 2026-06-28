@@ -2,12 +2,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from loguru import logger
+
+from ghostliness.blocks import block_state_to_protocol_id as registry_block_state_to_protocol_id
 from ghostliness.protocol.types import Writer
+from ghostliness.world import BlockPosition, BlockState, Chunk
 
 WORLD_NAMES = ("minecraft:overworld",)
 OVERWORLD_REGISTRY_ID = "minecraft:dimension_type"
 OVERWORLD_DIMENSION_ID = 0
 VOID_BIOME_ID = 0
+WORLD_MIN_Y = 0
+WORLD_HEIGHT = 384
+CHUNK_WIDTH = 16
+CHUNK_SECTION_HEIGHT = 16
+CHUNK_SECTION_COUNT = WORLD_HEIGHT // CHUNK_SECTION_HEIGHT
+HEIGHTMAP_BITS = 9
+
+_UNKNOWN_BLOCK_STATES_LOGGED: set[BlockState] = set()
 
 
 @dataclass(frozen=True, slots=True)
@@ -2568,9 +2580,50 @@ def encode_empty_chunk_data(section_count: int = 24) -> bytes:
     writer = Writer()
     for _ in range(section_count):
         writer.write_short(0)
+        writer.write_short(0)
         _write_single_value_palette(writer, 0)
         _write_single_value_palette(writer, VOID_BIOME_ID)
     return writer.to_bytes()
+
+
+def encode_chunk_data(chunk: Chunk, section_count: int = CHUNK_SECTION_COUNT) -> bytes:
+    writer = Writer()
+    for section_index in range(section_count):
+        block_state_ids = _section_block_state_ids(chunk, section_index)
+        writer.write_short(sum(1 for state_id in block_state_ids if state_id != 0))
+        writer.write_short(0)
+        _write_block_palette(writer, block_state_ids)
+        _write_single_value_palette(writer, VOID_BIOME_ID)
+    return writer.to_bytes()
+
+
+def block_state_to_protocol_id(state: BlockState) -> int:
+    protocol_id = registry_block_state_to_protocol_id(state)
+    if protocol_id != 0 or state.name == "minecraft:air":
+        return protocol_id
+    if state not in _UNKNOWN_BLOCK_STATES_LOGGED:
+        _UNKNOWN_BLOCK_STATES_LOGGED.add(state)
+        logger.debug(
+            "unknown block state {}; falling back to minecraft:air",
+            _format_block_state(state),
+        )
+    return 0
+
+
+def heightmaps_for_chunk(chunk: Chunk) -> list[dict[str, object]]:
+    heights = [0] * (CHUNK_WIDTH * CHUNK_WIDTH)
+    for position, state in chunk.blocks.items():
+        if not _is_encodable_block_position(position):
+            continue
+        if block_state_to_protocol_id(state) == 0:
+            continue
+        index = position.z * CHUNK_WIDTH + position.x
+        heights[index] = max(heights[index], position.y + 1)
+    packed_heights = _pack_fixed_width(heights, HEIGHTMAP_BITS)
+    return [
+        {"type": 1, "data": packed_heights},
+        {"type": 4, "data": packed_heights},
+    ]
 
 
 def empty_heightmaps() -> list[dict[str, object]]:
@@ -2596,7 +2649,87 @@ def empty_light_masks() -> dict[str, list[int] | list[bytes]]:
 def _write_single_value_palette(writer: Writer, value: int) -> None:
     writer.write_unsigned_byte(0)
     writer.write_varint(value)
-    writer.write_varint(0)
+
+
+def _section_block_state_ids(chunk: Chunk, section_index: int) -> list[int]:
+    section_y = WORLD_MIN_Y + section_index * CHUNK_SECTION_HEIGHT
+    block_state_ids = []
+    for local_y in range(CHUNK_SECTION_HEIGHT):
+        y = section_y + local_y
+        for z in range(CHUNK_WIDTH):
+            for x in range(CHUNK_WIDTH):
+                state = chunk.get_block(BlockPosition(x, y, z))
+                block_state_ids.append(block_state_to_protocol_id(state))
+    return block_state_ids
+
+
+def _write_block_palette(writer: Writer, values: list[int]) -> None:
+    first_value = values[0] if values else 0
+    if all(value == first_value for value in values):
+        _write_single_value_palette(writer, first_value)
+        return
+
+    palette: list[int] = []
+    palette_indexes: dict[int, int] = {}
+    packed_values = []
+    for value in values:
+        palette_index = palette_indexes.get(value)
+        if palette_index is None:
+            palette_index = len(palette)
+            palette_indexes[value] = palette_index
+            palette.append(value)
+        packed_values.append(palette_index)
+
+    bits_per_entry = max(4, (len(palette) - 1).bit_length())
+    if bits_per_entry > 8:
+        raise ValueError("direct block state palettes are not implemented yet")
+
+    writer.write_unsigned_byte(bits_per_entry)
+    writer.write_varint(len(palette))
+    for value in palette:
+        writer.write_varint(value)
+    _write_fixed_long_array(writer, _pack_fixed_width(packed_values, bits_per_entry))
+
+
+def _pack_fixed_width(values: list[int], bits_per_entry: int) -> list[int]:
+    if bits_per_entry <= 0:
+        return []
+    values_per_long = 64 // bits_per_entry
+    long_count = (len(values) + values_per_long - 1) // values_per_long
+    packed = [0] * long_count
+    mask = (1 << bits_per_entry) - 1
+    for index, value in enumerate(values):
+        long_index = index // values_per_long
+        bit_offset = (index % values_per_long) * bits_per_entry
+        packed[long_index] |= (value & mask) << bit_offset
+    return packed
+
+
+def _write_fixed_long_array(writer: Writer, values: list[int]) -> None:
+    for value in values:
+        writer.write_long(_to_signed_long(value))
+
+
+def _to_signed_long(value: int) -> int:
+    value &= (1 << 64) - 1
+    if value >= 1 << 63:
+        return value - (1 << 64)
+    return value
+
+
+def _is_encodable_block_position(position: BlockPosition) -> bool:
+    return (
+        0 <= position.x < CHUNK_WIDTH
+        and 0 <= position.z < CHUNK_WIDTH
+        and WORLD_MIN_Y <= position.y < WORLD_MIN_Y + WORLD_HEIGHT
+    )
+
+
+def _format_block_state(state: BlockState) -> str:
+    if not state.properties:
+        return state.name
+    properties = ",".join(f"{key}={value}" for key, value in state.properties)
+    return f"{state.name}[{properties}]"
 
 
 def _required_synchronized_registries() -> list[dict[str, object]]:

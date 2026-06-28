@@ -25,6 +25,11 @@ uv run ruff check .
 uv run ty check
 ```
 
+For a local client smoke test, set `[world] generator = "flat"` in
+`ghostliness.toml`, then start the server and join `127.0.0.1:25565` with a
+Minecraft Java 26.2 client. The default `void` generator is still useful for
+protocol debugging because it sends empty terrain.
+
 ## Plugin shape
 
 Plugins may be loaded from Python entry points in the `ghostliness.plugins` group or from local plugin files configured in `ghostliness.toml`.

@@ -4,6 +4,7 @@ import json
 import uuid
 from typing import Any
 
+from ghostliness.items import AIR_ITEM_ID, ITEM_NAMES_BY_ID, ItemStack
 from ghostliness.protocol.registry import (
     PacketDirection,
     PacketRegistry,
@@ -14,6 +15,7 @@ from ghostliness.protocol.types import Buffer, Writer
 from ghostliness.world_data import (
     OVERWORLD_DIMENSION_ID,
     WORLD_NAMES,
+    block_state_to_protocol_id,
     empty_heightmaps,
     empty_light_masks,
     encode_empty_chunk_data,
@@ -114,6 +116,11 @@ def _decode_empty(buffer: Buffer) -> dict[str, Any]:
     return {}
 
 
+def _decode_ignored_payload(buffer: Buffer) -> dict[str, Any]:
+    payload = buffer.read(buffer.remaining)
+    return {"ignored_bytes": len(payload)}
+
+
 def _decode_keep_alive_response(buffer: Buffer) -> dict[str, Any]:
     fields = {"keep_alive_id": buffer.read_long()}
     buffer.ensure_consumed()
@@ -172,6 +179,240 @@ def _decode_chunk_batch_received(buffer: Buffer) -> dict[str, Any]:
     return fields
 
 
+def _decode_player_input(buffer: Buffer) -> dict[str, Any]:
+    flags = buffer.read_byte()
+    fields = {
+        "flags": flags,
+        "forward": bool(flags & 0x01),
+        "backward": bool(flags & 0x02),
+        "left": bool(flags & 0x04),
+        "right": bool(flags & 0x08),
+        "jump": bool(flags & 0x10),
+        "shift": bool(flags & 0x20),
+        "sprint": bool(flags & 0x40),
+    }
+    buffer.ensure_consumed()
+    return fields
+
+
+_PLAYER_COMMAND_ACTIONS = (
+    "stop_sleeping",
+    "start_sprinting",
+    "stop_sprinting",
+    "start_riding_jump",
+    "stop_riding_jump",
+    "open_inventory",
+    "start_fall_flying",
+)
+
+
+def _decode_player_command(buffer: Buffer) -> dict[str, Any]:
+    entity_id = buffer.read_varint()
+    action = buffer.read_varint()
+    fields = {
+        "entity_id": entity_id,
+        "action": action,
+        "action_name": _enum_name(_PLAYER_COMMAND_ACTIONS, action),
+        "data": buffer.read_varint(),
+    }
+    buffer.ensure_consumed()
+    return fields
+
+
+_PLAYER_ACTIONS = (
+    "start_destroy_block",
+    "abort_destroy_block",
+    "stop_destroy_block",
+    "drop_all_items",
+    "drop_item",
+    "release_use_item",
+    "swap_item_with_offhand",
+    "stab",
+)
+
+_DIRECTIONS = ("down", "up", "north", "south", "west", "east")
+
+
+def _decode_player_action(buffer: Buffer) -> dict[str, Any]:
+    action = buffer.read_varint()
+    x, y, z = buffer.read_position()
+    direction = buffer.read_unsigned_byte()
+    fields = {
+        "action": action,
+        "action_name": _enum_name(_PLAYER_ACTIONS, action),
+        "position": {"x": x, "y": y, "z": z},
+        "direction": direction,
+        "direction_name": _enum_name(_DIRECTIONS, direction),
+        "sequence": buffer.read_varint(),
+    }
+    buffer.ensure_consumed()
+    return fields
+
+
+_INTERACTION_HANDS = ("main_hand", "off_hand")
+
+
+def _decode_set_carried_item(buffer: Buffer) -> dict[str, Any]:
+    fields = {"slot": buffer.read_short()}
+    buffer.ensure_consumed()
+    return fields
+
+
+def _decode_set_creative_mode_slot(buffer: Buffer) -> dict[str, Any]:
+    fields = {
+        "slot_num": buffer.read_short(),
+        "item_stack": _decode_item_stack(buffer),
+    }
+    buffer.ensure_consumed()
+    return fields
+
+
+def _decode_container_close(buffer: Buffer) -> dict[str, Any]:
+    fields = {"container_id": buffer.read_varint()}
+    buffer.ensure_consumed()
+    return fields
+
+
+def _decode_use_item_on(buffer: Buffer) -> dict[str, Any]:
+    hand = buffer.read_varint()
+    fields = {
+        "hand": hand,
+        "hand_name": _enum_name(_INTERACTION_HANDS, hand),
+        "hit_result": _decode_block_hit_result(buffer),
+        "sequence": buffer.read_varint(),
+    }
+    buffer.ensure_consumed()
+    return fields
+
+
+def _decode_use_item(buffer: Buffer) -> dict[str, Any]:
+    hand = buffer.read_varint()
+    fields = {
+        "hand": hand,
+        "hand_name": _enum_name(_INTERACTION_HANDS, hand),
+        "sequence": buffer.read_varint(),
+        "y_rot": buffer.read_float(),
+        "x_rot": buffer.read_float(),
+    }
+    buffer.ensure_consumed()
+    return fields
+
+
+def _decode_item_stack(buffer: Buffer) -> ItemStack:
+    count = buffer.read_varint()
+    if count <= 0:
+        return ItemStack.empty()
+
+    item_id = buffer.read_varint()
+    component_patch_start = buffer.pos
+    added_count = buffer.read_varint()
+    if added_count != 0:
+        component_patch = buffer.data[component_patch_start:]
+        buffer.read(buffer.remaining)
+        return ItemStack(
+            item_id=item_id,
+            count=count,
+            components_supported=False,
+            component_patch_bytes=component_patch,
+        )
+
+    removed_count = buffer.read_varint()
+    if removed_count != 0:
+        component_patch = buffer.data[component_patch_start:]
+        buffer.read(buffer.remaining)
+        return ItemStack(
+            item_id=item_id,
+            count=count,
+            components_supported=False,
+            component_patch_bytes=component_patch,
+        )
+
+    return ItemStack(item_id=item_id, count=count)
+
+
+def _encode_item_stack(writer: Writer, stack: ItemStack) -> None:
+    if stack.is_empty:
+        writer.write_varint(0)
+        return
+    if stack.item_id == AIR_ITEM_ID or stack.item_id not in ITEM_NAMES_BY_ID:
+        raise ValueError(f"cannot encode unsupported item id: {stack.item_id}")
+    if not stack.components_supported or stack.component_patch_bytes:
+        raise ValueError(f"cannot encode item stack with unsupported components: {stack.item_id}")
+    writer.write_varint(int(stack.count))
+    writer.write_varint(int(stack.item_id))
+    writer.write_varint(0)
+    writer.write_varint(0)
+
+
+def _decode_block_hit_result(buffer: Buffer) -> dict[str, Any]:
+    x, y, z = buffer.read_position()
+    direction = buffer.read_varint()
+    return {
+        "position": {"x": x, "y": y, "z": z},
+        "direction": direction,
+        "direction_name": _enum_name(_DIRECTIONS, direction),
+        "cursor": {
+            "x": buffer.read_float(),
+            "y": buffer.read_float(),
+            "z": buffer.read_float(),
+        },
+        "inside": buffer.read_bool(),
+        "world_border_hit": buffer.read_bool(),
+    }
+
+
+def _decode_interact(buffer: Buffer) -> dict[str, Any]:
+    entity_id = buffer.read_varint()
+    hand = buffer.read_varint()
+    fields = {
+        "entity_id": entity_id,
+        "hand": hand,
+        "hand_name": _enum_name(_INTERACTION_HANDS, hand),
+        "location": _decode_lp_vec3(buffer),
+        "using_secondary_action": buffer.read_bool(),
+    }
+    buffer.ensure_consumed()
+    return fields
+
+
+def _decode_swing(buffer: Buffer) -> dict[str, Any]:
+    hand = buffer.read_varint()
+    fields = {"hand": hand, "hand_name": _enum_name(_INTERACTION_HANDS, hand)}
+    buffer.ensure_consumed()
+    return fields
+
+
+def _decode_lp_vec3(buffer: Buffer) -> dict[str, float]:
+    first = buffer.read_unsigned_byte()
+    if first == 0:
+        return {"x": 0.0, "y": 0.0, "z": 0.0}
+
+    second = buffer.read_unsigned_byte()
+    high = int.from_bytes(buffer.read(4), "big", signed=False)
+    packed = (high << 16) | (second << 8) | first
+
+    scale = first & 0x03
+    if first & 0x04:
+        scale |= buffer.read_varint() << 2
+
+    return {
+        "x": _unpack_lp_vec3_component(packed >> 3) * scale,
+        "y": _unpack_lp_vec3_component(packed >> 18) * scale,
+        "z": _unpack_lp_vec3_component(packed >> 33) * scale,
+    }
+
+
+def _unpack_lp_vec3_component(value: int) -> float:
+    quantized = min(value & 0x7FFF, 32766)
+    return quantized * 2.0 / 32766.0 - 1.0
+
+
+def _enum_name(names: tuple[str, ...], value: int) -> str | None:
+    if 0 <= value < len(names):
+        return names[value]
+    return None
+
+
 def _encode_status_response(writer: Writer, fields: dict[str, Any]) -> None:
     writer.write_string(json.dumps(fields["response"], separators=(",", ":")))
 
@@ -225,6 +466,27 @@ def _encode_system_chat(writer: Writer, fields: dict[str, Any]) -> None:
 def _encode_game_event(writer: Writer, fields: dict[str, Any]) -> None:
     writer.write_unsigned_byte(int(fields["event"]))
     writer.write_float(float(fields.get("param", 0.0)))
+
+
+def _encode_block_changed_ack(writer: Writer, fields: dict[str, Any]) -> None:
+    writer.write_varint(int(fields["sequence"]))
+
+
+def _encode_block_update(writer: Writer, fields: dict[str, Any]) -> None:
+    position = fields["position"]
+    if not isinstance(position, dict):
+        raise TypeError("block update position must be a dict")
+    writer.write_position(int(position["x"]), int(position["y"]), int(position["z"]))
+    writer.write_varint(block_state_to_protocol_id(fields["state"]))
+
+
+def _encode_forget_level_chunk(writer: Writer, fields: dict[str, Any]) -> None:
+    chunk_x = int(fields["x"])
+    chunk_z = int(fields["z"])
+    packed = ((chunk_z & 0xFFFFFFFF) << 32) | (chunk_x & 0xFFFFFFFF)
+    if packed >= 1 << 63:
+        packed -= 1 << 64
+    writer.write_long(packed)
 
 
 def _encode_plugin_message(writer: Writer, fields: dict[str, Any]) -> None:
@@ -302,6 +564,18 @@ def _encode_spawn_position(writer: Writer, fields: dict[str, Any]) -> None:
     )
     writer.write_float(float(fields.get("yaw", 0.0)))
     writer.write_float(float(fields.get("pitch", 0.0)))
+
+
+def _encode_set_held_slot(writer: Writer, fields: dict[str, Any]) -> None:
+    writer.write_varint(int(fields["slot"]))
+
+
+def _encode_set_player_inventory(writer: Writer, fields: dict[str, Any]) -> None:
+    stack = fields["contents"]
+    if not isinstance(stack, ItemStack):
+        raise TypeError("set player inventory contents must be an ItemStack")
+    writer.write_varint(int(fields["slot"]))
+    _encode_item_stack(writer, stack)
 
 
 def _encode_player_position(writer: Writer, fields: dict[str, Any]) -> None:
@@ -566,9 +840,94 @@ def _register(registry: PacketRegistry) -> PacketRegistry:
         PacketType(
             PacketState.PLAY,
             sb,
+            0x01,
+            "serverbound.attack",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x02,
+            "serverbound.block_entity_tag_query",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x03,
+            "serverbound.select_bundle_item",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x04,
+            "serverbound.change_difficulty",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x05,
+            "serverbound.change_game_mode",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(PacketState.PLAY, sb, 0x06, "serverbound.chat_ack", _decode_ignored_payload)
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x07,
+            "serverbound.chat_command",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x08,
+            "serverbound.chat_command_signed",
+            _decode_ignored_payload,
+        )
+    )
+    register(PacketType(PacketState.PLAY, sb, 0x09, "serverbound.chat", _decode_ignored_payload))
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x0A,
+            "serverbound.chat_session_update",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
             0x0B,
             "serverbound.chunk_batch_received",
             _decode_chunk_batch_received,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x0C,
+            "serverbound.client_command",
+            _decode_ignored_payload,
         )
     )
     register(PacketType(PacketState.PLAY, sb, 0x0D, "serverbound.client_tick_end", _decode_empty))
@@ -585,6 +944,15 @@ def _register(registry: PacketRegistry) -> PacketRegistry:
         PacketType(
             PacketState.PLAY,
             sb,
+            0x0F,
+            "serverbound.command_suggestion",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
             0x10,
             "serverbound.configuration_acknowledged",
             _decode_configuration_acknowledged,
@@ -594,9 +962,105 @@ def _register(registry: PacketRegistry) -> PacketRegistry:
         PacketType(
             PacketState.PLAY,
             sb,
+            0x11,
+            "serverbound.container_button_click",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x12,
+            "serverbound.container_click",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x13,
+            "serverbound.container_close",
+            _decode_container_close,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x14,
+            "serverbound.container_slot_state_changed",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x15,
+            "serverbound.cookie_response",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x16,
+            "serverbound.play_custom_payload",
+            _decode_custom_payload,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x17,
+            "serverbound.debug_subscription_request",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(PacketState.PLAY, sb, 0x18, "serverbound.edit_book", _decode_ignored_payload)
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x19,
+            "serverbound.entity_tag_query",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(PacketState.PLAY, sb, 0x1A, "serverbound.interact", _decode_interact)
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x1B,
+            "serverbound.jigsaw_generate",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
             0x1C,
             "serverbound.keep_alive",
             _decode_keep_alive_response,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x1D,
+            "serverbound.lock_difficulty",
+            _decode_ignored_payload,
         )
     )
     register(PacketType(PacketState.PLAY, sb, 0x1E, "serverbound.position", _decode_position))
@@ -611,7 +1075,255 @@ def _register(registry: PacketRegistry) -> PacketRegistry:
     )
     register(PacketType(PacketState.PLAY, sb, 0x20, "serverbound.rotation", _decode_rotation))
     register(PacketType(PacketState.PLAY, sb, 0x21, "serverbound.status_only", _decode_status_only))
+    register(
+        PacketType(PacketState.PLAY, sb, 0x22, "serverbound.move_vehicle", _decode_ignored_payload)
+    )
+    register(
+        PacketType(PacketState.PLAY, sb, 0x23, "serverbound.paddle_boat", _decode_ignored_payload)
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x24,
+            "serverbound.pick_item_from_block",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x25,
+            "serverbound.pick_item_from_entity",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x26,
+            "serverbound.play_ping_request",
+            _decode_ping_request,
+        )
+    )
+    register(
+        PacketType(PacketState.PLAY, sb, 0x27, "serverbound.place_recipe", _decode_ignored_payload)
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x28,
+            "serverbound.player_abilities",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(PacketState.PLAY, sb, 0x29, "serverbound.player_action", _decode_player_action)
+    )
+    register(
+        PacketType(PacketState.PLAY, sb, 0x2A, "serverbound.player_command", _decode_player_command)
+    )
+    register(
+        PacketType(PacketState.PLAY, sb, 0x2B, "serverbound.player_input", _decode_player_input)
+    )
     register(PacketType(PacketState.PLAY, sb, 0x2C, "serverbound.player_loaded", _decode_empty))
+    register(
+        PacketType(PacketState.PLAY, sb, 0x2D, "serverbound.pong", _decode_ignored_payload)
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x2E,
+            "serverbound.recipe_book_change_settings",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x2F,
+            "serverbound.recipe_book_seen_recipe",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(PacketState.PLAY, sb, 0x30, "serverbound.rename_item", _decode_ignored_payload)
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x31,
+            "serverbound.resource_pack",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x32,
+            "serverbound.seen_advancements",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x33,
+            "serverbound.select_trade",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(PacketState.PLAY, sb, 0x34, "serverbound.set_beacon", _decode_ignored_payload)
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x35,
+            "serverbound.set_carried_item",
+            _decode_set_carried_item,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x36,
+            "serverbound.set_command_block",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x37,
+            "serverbound.set_command_minecart",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x38,
+            "serverbound.set_creative_mode_slot",
+            _decode_set_creative_mode_slot,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x39,
+            "serverbound.set_game_rule",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x3A,
+            "serverbound.set_jigsaw_block",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x3B,
+            "serverbound.set_structure_block",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x3C,
+            "serverbound.set_test_block",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x3D,
+            "serverbound.sign_update",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x3E,
+            "serverbound.spectator_action",
+            _decode_ignored_payload,
+        )
+    )
+    register(PacketType(PacketState.PLAY, sb, 0x3F, "serverbound.swing", _decode_swing))
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x40,
+            "serverbound.teleport_to_entity",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x41,
+            "serverbound.test_instance_block_action",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(PacketState.PLAY, sb, 0x42, "serverbound.use_item_on", _decode_use_item_on)
+    )
+    register(PacketType(PacketState.PLAY, sb, 0x43, "serverbound.use_item", _decode_use_item))
+    register(
+        PacketType(
+            PacketState.PLAY,
+            sb,
+            0x44,
+            "serverbound.custom_click_action",
+            _decode_ignored_payload,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            cb,
+            0x04,
+            "clientbound.block_changed_ack",
+            encoder=_encode_block_changed_ack,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            cb,
+            0x08,
+            "clientbound.block_update",
+            encoder=_encode_block_update,
+        )
+    )
     register(
         PacketType(
             PacketState.PLAY,
@@ -631,13 +1343,22 @@ def _register(registry: PacketRegistry) -> PacketRegistry:
         )
     )
     register(
+        PacketType(
+            PacketState.PLAY,
+            cb,
+            0x25,
+            "clientbound.forget_level_chunk",
+            encoder=_encode_forget_level_chunk,
+        )
+    )
+    register(
+        PacketType(PacketState.PLAY, cb, 0x26, "clientbound.game_event", encoder=_encode_game_event)
+    )
+    register(
         PacketType(PacketState.PLAY, cb, 0x2C, "clientbound.keep_alive", encoder=_encode_keep_alive)
     )
     register(
         PacketType(PacketState.PLAY, cb, 0x2D, "clientbound.map_chunk", encoder=_encode_map_chunk)
-    )
-    register(
-        PacketType(PacketState.PLAY, cb, 0x26, "clientbound.game_event", encoder=_encode_game_event)
     )
     register(PacketType(PacketState.PLAY, cb, 0x31, "clientbound.login", encoder=_encode_join_game))
     register(
@@ -674,6 +1395,24 @@ def _register(registry: PacketRegistry) -> PacketRegistry:
             0x61,
             "clientbound.spawn_position",
             encoder=_encode_spawn_position,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            cb,
+            0x69,
+            "clientbound.set_held_slot",
+            encoder=_encode_set_held_slot,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            cb,
+            0x6C,
+            "clientbound.set_player_inventory",
+            encoder=_encode_set_player_inventory,
         )
     )
     register(
