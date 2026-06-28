@@ -108,6 +108,7 @@ class GhostlinessServer:
     async def _tick_loop(self) -> None:
         while True:
             await self.events.publish("tick", self)
+            await self.runtime.tick()
             now = time.monotonic()
             for connection in list(self.connections.values()):
                 if connection.player is None:

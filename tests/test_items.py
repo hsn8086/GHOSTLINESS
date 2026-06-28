@@ -48,6 +48,46 @@ def test_player_inventory_loads_default_test_hotbar():
     assert inventory.hotbar[:3] == list(DEFAULT_TEST_HOTBAR)
 
 
+def test_player_inventory_removes_from_selected_slot():
+    inventory = PlayerInventory()
+    inventory.set_hotbar_slot(0, ItemStack(item_id=DIRT_ITEM_ID, count=5))
+
+    removed = inventory.remove_from_selected(2)
+
+    assert removed == ItemStack(item_id=DIRT_ITEM_ID, count=2)
+    assert inventory.selected_stack() == ItemStack(item_id=DIRT_ITEM_ID, count=3)
+
+
+def test_player_inventory_clears_selected_slot_when_removing_entire_stack():
+    inventory = PlayerInventory()
+    inventory.set_hotbar_slot(0, ItemStack(item_id=DIRT_ITEM_ID, count=5))
+
+    removed = inventory.remove_from_selected(64)
+
+    assert removed == ItemStack(item_id=DIRT_ITEM_ID, count=5)
+    assert inventory.selected_stack().is_empty
+
+
+def test_player_inventory_adds_stack_by_merging_then_empty_slot():
+    inventory = PlayerInventory()
+    inventory.set_hotbar_slot(0, ItemStack(item_id=DIRT_ITEM_ID, count=63))
+
+    assert inventory.add_stack(ItemStack(item_id=DIRT_ITEM_ID, count=3)) is True
+
+    assert inventory.hotbar[0] == ItemStack(item_id=DIRT_ITEM_ID, count=64)
+    assert inventory.hotbar[1] == ItemStack(item_id=DIRT_ITEM_ID, count=2)
+
+
+def test_player_inventory_rejects_stack_when_hotbar_is_full():
+    inventory = PlayerInventory()
+    for slot in range(9):
+        inventory.set_hotbar_slot(slot, ItemStack(item_id=DIRT_ITEM_ID, count=64))
+
+    assert inventory.can_add_stack(ItemStack(item_id=STONE_ITEM_ID, count=1)) is False
+    assert inventory.add_stack(ItemStack(item_id=STONE_ITEM_ID, count=1)) is False
+    assert all(stack == ItemStack(item_id=DIRT_ITEM_ID, count=64) for stack in inventory.hotbar)
+
+
 def test_block_for_item_stack_maps_supported_placeable_items():
     assert block_for_item_stack(ItemStack(item_id=STONE_ITEM_ID, count=1)) == STONE
     assert block_for_item_stack(ItemStack(item_id=GRASS_BLOCK_ITEM_ID, count=1)) == GRASS_BLOCK

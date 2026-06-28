@@ -7,6 +7,7 @@ from ghostliness.protocol.registry import PacketDirection, PacketState
 from ghostliness.protocol.versions import JAVA_26_2
 from ghostliness.server import GhostlinessServer
 from ghostliness.server.connection import Connection, _payload_hex
+from ghostliness.server.player import PlayerPose
 
 
 async def test_connection_methods_emit_configuration_and_play_packets():
@@ -100,6 +101,67 @@ async def test_connection_handles_container_close_without_disconnect():
 
     assert writer.data == bytearray()
     assert writer.closed is False
+
+
+async def test_connection_dispatch_updates_player_runtime_state():
+    config = GhostlinessConfig(
+        server=ServerConfig(host="127.0.0.1", port=0, view_distance=0),
+        network=NetworkConfig(compression_threshold=-1),
+    )
+    server = GhostlinessServer(config)
+    connection = Connection(
+        server,
+        cast(asyncio.StreamReader, object()),
+        cast(asyncio.StreamWriter, _MemoryWriter()),
+    )
+    connection.profile = await server.authenticator.authenticate_offline("Tester")
+    await connection.enter_play()
+    session = server.runtime.get_session(connection.connection_id)
+    assert session is not None
+
+    await connection._dispatch(
+        PacketContainer(
+            JAVA_26_2.get_by_name("serverbound.position_look"),
+            {"x": 1.0, "y": 66.0, "z": 2.0, "yaw": 90.0, "pitch": 10.0, "flags": 1},
+        )
+    )
+    await connection._dispatch(
+        PacketContainer(
+            JAVA_26_2.get_by_name("serverbound.player_input"),
+            {
+                "flags": 0x21,
+                "forward": True,
+                "backward": False,
+                "left": False,
+                "right": False,
+                "jump": False,
+                "shift": True,
+                "sprint": False,
+            },
+        )
+    )
+    await connection._dispatch(
+        PacketContainer(
+            JAVA_26_2.get_by_name("serverbound.player_command"),
+            {
+                "entity_id": session.player.entity_id,
+                "action": 1,
+                "action_name": "start_sprinting",
+                "data": 0,
+            },
+        )
+    )
+
+    assert session.player.position.x == 1.0
+    assert session.player.position.y == 66.0
+    assert session.player.position.z == 2.0
+    assert session.player.position.yaw == 90.0
+    assert session.player.position.pitch == 10.0
+    assert session.player.on_ground is True
+    assert session.player.input.forward is True
+    assert session.player.sneaking is True
+    assert session.player.pose == PlayerPose.SNEAKING
+    assert session.player.sprinting is True
 
 
 def test_payload_hex_is_capped_for_logs():

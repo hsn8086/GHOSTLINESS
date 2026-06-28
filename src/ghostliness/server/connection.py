@@ -200,6 +200,12 @@ class Connection:
                     packet.fields.get("action_name"),
                     packet.fields.get("data"),
                 )
+                self.server.runtime.handle_player_command(
+                    self.connection_id,
+                    str(packet.fields["action_name"])
+                    if packet.fields.get("action_name") is not None
+                    else None,
+                )
             case "serverbound.player_input":
                 logger.trace(
                     "player input id={} flags={} forward={} backward={} "
@@ -214,6 +220,7 @@ class Connection:
                     packet.fields.get("shift"),
                     packet.fields.get("sprint"),
                 )
+                self.server.runtime.handle_player_input(self.connection_id, packet.fields)
             case "serverbound.interact":
                 logger.debug(
                     "interact id={} entity_id={} hand={} hand_name={} location={} "
@@ -470,28 +477,7 @@ class Connection:
         )
 
     async def _update_player_position(self, packet: PacketContainer) -> None:
-        if self.player is None:
-            return
-        if "x" in packet.fields:
-            self.player.position.x = float(packet.fields["x"])
-        if "y" in packet.fields:
-            self.player.position.y = float(packet.fields["y"])
-        if "z" in packet.fields:
-            self.player.position.z = float(packet.fields["z"])
-        if "yaw" in packet.fields:
-            self.player.position.yaw = float(packet.fields["yaw"])
-        if "pitch" in packet.fields:
-            self.player.position.pitch = float(packet.fields["pitch"])
-        logger.trace(
-            "position update id={} x={} y={} z={} yaw={} pitch={}",
-            self.connection_id,
-            self.player.position.x,
-            self.player.position.y,
-            self.player.position.z,
-            self.player.position.yaw,
-            self.player.position.pitch,
-        )
-        await self.server.runtime.handle_player_moved(self.connection_id)
+        await self.server.runtime.handle_player_movement(self.connection_id, packet.fields)
 
     async def send(
         self,

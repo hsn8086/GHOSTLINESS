@@ -12,3 +12,4 @@ build/
 htmlcov/
 ghostliness.toml
 logs/
+worlds/

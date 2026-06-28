@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 
 from ghostliness.items import DIRT_ITEM_ID, STONE_ITEM_ID, ItemStack
@@ -39,6 +41,7 @@ def test_protocol_version_targets_latest_release_number():
 
 def test_26_2_play_clientbound_packet_ids_match_vanilla_registration_order():
     expected_ids = {
+        "clientbound.add_entity": 0x01,
         "clientbound.block_changed_ack": 0x04,
         "clientbound.block_update": 0x08,
         "clientbound.chunk_batch_finished": 0x0B,
@@ -48,13 +51,20 @@ def test_26_2_play_clientbound_packet_ids_match_vanilla_registration_order():
         "clientbound.keep_alive": 0x2C,
         "clientbound.map_chunk": 0x2D,
         "clientbound.login": 0x31,
+        "clientbound.player_info_remove": 0x45,
+        "clientbound.player_info_update": 0x46,
         "clientbound.position": 0x48,
+        "clientbound.remove_entities": 0x4D,
         "clientbound.update_view_position": 0x5E,
         "clientbound.update_view_distance": 0x5F,
         "clientbound.spawn_position": 0x61,
+        "clientbound.set_entity_data": 0x63,
+        "clientbound.set_entity_motion": 0x65,
         "clientbound.set_held_slot": 0x69,
         "clientbound.set_player_inventory": 0x6C,
         "clientbound.system_chat": 0x79,
+        "clientbound.take_item_entity": 0x7C,
+        "clientbound.teleport_entity": 0x7D,
     }
 
     for packet_name, packet_id in expected_ids.items():
@@ -226,6 +236,193 @@ def test_encode_level_chunks_load_start_game_event():
     assert buffer.read_varint() == 0x26
     assert buffer.read_unsigned_byte() == 13
     assert buffer.read_float() == 0.0
+    buffer.ensure_consumed()
+
+
+def test_encode_player_info_update_for_spawned_player():
+    profile_uuid = uuid.UUID("12345678-1234-5678-9234-567812345678")
+    packet_type = JAVA_26_2.get_by_name("clientbound.player_info_update")
+    payload = encode_payload(
+        packet_type,
+        {
+            "entries": [
+                {
+                    "uuid": profile_uuid,
+                    "username": "OtherPlayer",
+                    "properties": (),
+                    "gamemode": 1,
+                    "listed": True,
+                    "latency": 0,
+                    "display_name": None,
+                    "list_order": 0,
+                    "show_hat": True,
+                }
+            ]
+        },
+    )
+
+    buffer = Buffer(payload)
+    assert buffer.read_varint() == 0x46
+    assert buffer.read_unsigned_byte() == 0xFF
+    assert buffer.read_varint() == 1
+    assert buffer.read_uuid() == profile_uuid
+    assert buffer.read_string(16) == "OtherPlayer"
+    assert buffer.read_varint() == 0
+    assert buffer.read_bool() is False
+    assert buffer.read_varint() == 1
+    assert buffer.read_bool() is True
+    assert buffer.read_varint() == 0
+    assert buffer.read_bool() is False
+    assert buffer.read_varint() == 0
+    assert buffer.read_bool() is True
+    buffer.ensure_consumed()
+
+
+def test_encode_player_entity_packets():
+    profile_uuid = uuid.UUID("12345678-1234-5678-9234-567812345678")
+
+    add_payload = encode_payload(
+        JAVA_26_2.get_by_name("clientbound.add_entity"),
+        {
+            "entity_id": 7,
+            "uuid": profile_uuid,
+            "x": 1.25,
+            "y": 65.0,
+            "z": -2.5,
+            "yaw": 90.0,
+            "pitch": 45.0,
+        },
+    )
+    buffer = Buffer(add_payload)
+    assert buffer.read_varint() == 0x01
+    assert buffer.read_varint() == 7
+    assert buffer.read_uuid() == profile_uuid
+    assert buffer.read_varint() == 156
+    assert buffer.read_double() == 1.25
+    assert buffer.read_double() == 65.0
+    assert buffer.read_double() == -2.5
+    assert buffer.read_byte() == 0
+    assert buffer.read_unsigned_byte() == 32
+    assert buffer.read_unsigned_byte() == 64
+    assert buffer.read_unsigned_byte() == 64
+    assert buffer.read_varint() == 0
+    buffer.ensure_consumed()
+
+    teleport_payload = encode_payload(
+        JAVA_26_2.get_by_name("clientbound.teleport_entity"),
+        {
+            "entity_id": 7,
+            "x": 2.0,
+            "y": 66.0,
+            "z": -3.0,
+            "yaw": 180.0,
+            "pitch": -10.0,
+            "on_ground": True,
+        },
+    )
+    buffer = Buffer(teleport_payload)
+    assert buffer.read_varint() == 0x7D
+    assert buffer.read_varint() == 7
+    assert buffer.read_double() == 2.0
+    assert buffer.read_double() == 66.0
+    assert buffer.read_double() == -3.0
+    assert buffer.read_double() == 0.0
+    assert buffer.read_double() == 0.0
+    assert buffer.read_double() == 0.0
+    assert buffer.read_float() == 180.0
+    assert buffer.read_float() == -10.0
+    assert buffer.read_int() == 0
+    assert buffer.read_bool() is True
+    buffer.ensure_consumed()
+
+    remove_payload = encode_payload(
+        JAVA_26_2.get_by_name("clientbound.remove_entities"),
+        {"entity_ids": [7, 8]},
+    )
+    buffer = Buffer(remove_payload)
+    assert buffer.read_varint() == 0x4D
+    assert buffer.read_varint() == 2
+    assert buffer.read_varint() == 7
+    assert buffer.read_varint() == 8
+    buffer.ensure_consumed()
+
+
+def test_encode_item_entity_packets():
+    entity_uuid = uuid.UUID("12345678-1234-5678-9234-567812345678")
+
+    add_payload = encode_payload(
+        JAVA_26_2.get_by_name("clientbound.add_entity"),
+        {
+            "entity_id": 9,
+            "uuid": entity_uuid,
+            "entity_type_id": 71,
+            "x": 1.5,
+            "y": 65.25,
+            "z": -2.5,
+            "dx": 0.1,
+            "dy": 0.2,
+            "dz": -0.1,
+        },
+    )
+    buffer = Buffer(add_payload)
+    assert buffer.read_varint() == 0x01
+    assert buffer.read_varint() == 9
+    assert buffer.read_uuid() == entity_uuid
+    assert buffer.read_varint() == 71
+    assert buffer.read_double() == 1.5
+    assert buffer.read_double() == 65.25
+    assert buffer.read_double() == -2.5
+    movement = JAVA_26_2.get_by_name("clientbound.add_entity").decoder
+    assert movement is not None
+    buffer = Buffer(add_payload[1:])
+    assert movement(buffer)["movement"] == pytest.approx(
+        {"x": 0.1, "y": 0.2, "z": -0.1},
+        abs=0.00004,
+    )
+
+    data_payload = encode_payload(
+        JAVA_26_2.get_by_name("clientbound.set_entity_data"),
+        {
+            "entity_id": 9,
+            "entries": [
+                {"id": 8, "serializer_id": 7, "value": ItemStack(item_id=STONE_ITEM_ID, count=3)}
+            ],
+        },
+    )
+    buffer = Buffer(data_payload)
+    assert buffer.read_varint() == 0x63
+    assert buffer.read_varint() == 9
+    assert buffer.read_unsigned_byte() == 8
+    assert buffer.read_varint() == 7
+    assert buffer.read_varint() == 3
+    assert buffer.read_varint() == STONE_ITEM_ID
+    assert buffer.read_varint() == 0
+    assert buffer.read_varint() == 0
+    assert buffer.read_unsigned_byte() == 0xFF
+    buffer.ensure_consumed()
+
+    motion_payload = encode_payload(
+        JAVA_26_2.get_by_name("clientbound.set_entity_motion"),
+        {"entity_id": 9, "dx": -0.25, "dy": 0.5, "dz": 0.125},
+    )
+    packet_type = JAVA_26_2.get_by_name("clientbound.set_entity_motion")
+    assert packet_type.decoder is not None
+    decoded = packet_type.decoder(Buffer(motion_payload[1:]))
+    assert decoded["entity_id"] == 9
+    assert decoded["movement"] == pytest.approx(
+        {"x": -0.25, "y": 0.5, "z": 0.125},
+        abs=0.00004,
+    )
+
+    take_payload = encode_payload(
+        JAVA_26_2.get_by_name("clientbound.take_item_entity"),
+        {"item_id": 9, "player_id": 1, "amount": 3},
+    )
+    buffer = Buffer(take_payload)
+    assert buffer.read_varint() == 0x7C
+    assert buffer.read_varint() == 9
+    assert buffer.read_varint() == 1
+    assert buffer.read_varint() == 3
     buffer.ensure_consumed()
 
 

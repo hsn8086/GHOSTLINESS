@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any
+from math import ceil, floor, isfinite
+from typing import Any, cast
 
 from ghostliness.items import AIR_ITEM_ID, ITEM_NAMES_BY_ID, ItemStack
 from ghostliness.protocol.registry import (
@@ -27,6 +28,15 @@ MINECRAFT_VERSION = "26.2"
 # registry is updated from authoritative protocol data. Keeping the value in
 # this module prevents version assumptions leaking into server logic.
 PROTOCOL_VERSION = 776
+ITEM_ENTITY_TYPE_ID = 71
+PLAYER_ENTITY_TYPE_ID = 156
+ENTITY_DATA_SERIALIZER_ITEM_STACK = 7
+ITEM_ENTITY_DATA_ITEM = 8
+
+_PLAYER_INFO_ACTION_ALL = 0xFF
+_LP_VEC3_MIN_VALUE = 3.051944088384301e-5
+_LP_VEC3_MAX_ABS_VALUE = 1.7179869183e10
+_LP_VEC3_COMPONENT_SCALE = 32766.0
 
 
 def _decode_handshake(buffer: Buffer) -> dict[str, Any]:
@@ -407,6 +417,103 @@ def _unpack_lp_vec3_component(value: int) -> float:
     return quantized * 2.0 / 32766.0 - 1.0
 
 
+def _decode_clientbound_add_entity(buffer: Buffer) -> dict[str, Any]:
+    fields: dict[str, Any] = {
+        "entity_id": buffer.read_varint(),
+        "uuid": buffer.read_uuid(),
+        "entity_type_id": buffer.read_varint(),
+        "x": buffer.read_double(),
+        "y": buffer.read_double(),
+        "z": buffer.read_double(),
+        "movement": _decode_lp_vec3(buffer),
+        "pitch_packed": buffer.read_unsigned_byte(),
+        "yaw_packed": buffer.read_unsigned_byte(),
+        "head_yaw_packed": buffer.read_unsigned_byte(),
+        "data": buffer.read_varint(),
+    }
+    buffer.ensure_consumed()
+    return fields
+
+
+def _decode_clientbound_remove_entities(buffer: Buffer) -> dict[str, Any]:
+    fields = {"entity_ids": [buffer.read_varint() for _ in range(buffer.read_varint())]}
+    buffer.ensure_consumed()
+    return fields
+
+
+def _decode_clientbound_teleport_entity(buffer: Buffer) -> dict[str, Any]:
+    fields = {
+        "entity_id": buffer.read_varint(),
+        "x": buffer.read_double(),
+        "y": buffer.read_double(),
+        "z": buffer.read_double(),
+        "dx": buffer.read_double(),
+        "dy": buffer.read_double(),
+        "dz": buffer.read_double(),
+        "yaw": buffer.read_float(),
+        "pitch": buffer.read_float(),
+        "relatives": buffer.read_int(),
+        "on_ground": buffer.read_bool(),
+    }
+    buffer.ensure_consumed()
+    return fields
+
+
+def _decode_clientbound_set_entity_data(buffer: Buffer) -> dict[str, Any]:
+    entity_id = buffer.read_varint()
+    entries: list[dict[str, object]] = []
+    while True:
+        data_id = buffer.read_unsigned_byte()
+        if data_id == 0xFF:
+            break
+        serializer_id = buffer.read_varint()
+        if serializer_id == ENTITY_DATA_SERIALIZER_ITEM_STACK:
+            value: object = _decode_item_stack(buffer)
+        else:
+            remaining = buffer.read(buffer.remaining)
+            entries.append(
+                {
+                    "id": data_id,
+                    "serializer_id": serializer_id,
+                    "unsupported_bytes": remaining,
+                }
+            )
+            break
+        entries.append({"id": data_id, "serializer_id": serializer_id, "value": value})
+    buffer.ensure_consumed()
+    return {"entity_id": entity_id, "entries": entries}
+
+
+def _decode_clientbound_set_entity_motion(buffer: Buffer) -> dict[str, Any]:
+    fields = {
+        "entity_id": buffer.read_varint(),
+        "movement": _decode_lp_vec3(buffer),
+    }
+    buffer.ensure_consumed()
+    return fields
+
+
+def _decode_clientbound_take_item_entity(buffer: Buffer) -> dict[str, Any]:
+    fields = {
+        "item_id": buffer.read_varint(),
+        "player_id": buffer.read_varint(),
+        "amount": buffer.read_varint(),
+    }
+    buffer.ensure_consumed()
+    return fields
+
+
+def _decode_clientbound_player_info_remove(buffer: Buffer) -> dict[str, Any]:
+    fields = {"profile_ids": [buffer.read_uuid() for _ in range(buffer.read_varint())]}
+    buffer.ensure_consumed()
+    return fields
+
+
+def _decode_clientbound_ignored_payload(buffer: Buffer) -> dict[str, Any]:
+    payload = buffer.read(buffer.remaining)
+    return {"ignored_bytes": len(payload)}
+
+
 def _enum_name(names: tuple[str, ...], value: int) -> str | None:
     if 0 <= value < len(names):
         return names[value]
@@ -456,6 +563,147 @@ def _encode_disconnect(writer: Writer, fields: dict[str, Any]) -> None:
 
 def _encode_keep_alive(writer: Writer, fields: dict[str, Any]) -> None:
     writer.write_long(int(fields["keep_alive_id"]))
+
+
+def _encode_add_entity(writer: Writer, fields: dict[str, Any]) -> None:
+    entity_uuid = fields["uuid"]
+    if not isinstance(entity_uuid, uuid.UUID):
+        entity_uuid = uuid.UUID(str(entity_uuid))
+    writer.write_varint(int(fields["entity_id"]))
+    writer.write_uuid(entity_uuid)
+    writer.write_varint(int(fields.get("entity_type_id", PLAYER_ENTITY_TYPE_ID)))
+    writer.write_double(float(fields.get("x", 0.0)))
+    writer.write_double(float(fields.get("y", 0.0)))
+    writer.write_double(float(fields.get("z", 0.0)))
+    _encode_lp_vec3(
+        writer,
+        float(fields.get("dx", 0.0)),
+        float(fields.get("dy", 0.0)),
+        float(fields.get("dz", 0.0)),
+    )
+    writer.write_byte(_pack_degrees(float(fields.get("pitch", 0.0))))
+    writer.write_byte(_pack_degrees(float(fields.get("yaw", 0.0))))
+    writer.write_byte(_pack_degrees(float(fields.get("head_yaw", fields.get("yaw", 0.0)))))
+    writer.write_varint(int(fields.get("data", 0)))
+
+
+def _encode_remove_entities(writer: Writer, fields: dict[str, Any]) -> None:
+    entity_ids = tuple(int(entity_id) for entity_id in fields.get("entity_ids", ()))
+    writer.write_varint(len(entity_ids))
+    for entity_id in entity_ids:
+        writer.write_varint(entity_id)
+
+
+def _encode_teleport_entity(writer: Writer, fields: dict[str, Any]) -> None:
+    writer.write_varint(int(fields["entity_id"]))
+    writer.write_double(float(fields.get("x", 0.0)))
+    writer.write_double(float(fields.get("y", 0.0)))
+    writer.write_double(float(fields.get("z", 0.0)))
+    writer.write_double(float(fields.get("dx", 0.0)))
+    writer.write_double(float(fields.get("dy", 0.0)))
+    writer.write_double(float(fields.get("dz", 0.0)))
+    writer.write_float(float(fields.get("yaw", 0.0)))
+    writer.write_float(float(fields.get("pitch", 0.0)))
+    writer.write_int(int(fields.get("relatives", 0)))
+    writer.write_bool(bool(fields.get("on_ground", False)))
+
+
+def _encode_set_entity_data(writer: Writer, fields: dict[str, Any]) -> None:
+    writer.write_varint(int(fields["entity_id"]))
+    entries = fields.get("entries", ())
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise TypeError("entity data entries must be dicts")
+        data_id = int(entry["id"])
+        serializer_id = int(entry["serializer_id"])
+        writer.write_byte(data_id)
+        writer.write_varint(serializer_id)
+        if serializer_id == ENTITY_DATA_SERIALIZER_ITEM_STACK:
+            value = entry["value"]
+            if not isinstance(value, ItemStack):
+                raise TypeError("item stack entity data value must be an ItemStack")
+            _encode_item_stack(writer, value)
+        else:
+            raise ValueError(f"unsupported entity data serializer id: {serializer_id}")
+    writer.write_byte(0xFF)
+
+
+def _encode_item_entity_data(writer: Writer, fields: dict[str, Any]) -> None:
+    stack = fields["item_stack"]
+    if not isinstance(stack, ItemStack):
+        raise TypeError("item entity item_stack must be an ItemStack")
+    _encode_set_entity_data(
+        writer,
+        {
+            "entity_id": fields["entity_id"],
+            "entries": (
+                {
+                    "id": ITEM_ENTITY_DATA_ITEM,
+                    "serializer_id": ENTITY_DATA_SERIALIZER_ITEM_STACK,
+                    "value": stack,
+                },
+            ),
+        },
+    )
+
+
+def _encode_set_entity_motion(writer: Writer, fields: dict[str, Any]) -> None:
+    writer.write_varint(int(fields["entity_id"]))
+    _encode_lp_vec3(
+        writer,
+        float(fields.get("dx", fields.get("x", 0.0))),
+        float(fields.get("dy", fields.get("y", 0.0))),
+        float(fields.get("dz", fields.get("z", 0.0))),
+    )
+
+
+def _encode_take_item_entity(writer: Writer, fields: dict[str, Any]) -> None:
+    writer.write_varint(int(fields["item_id"]))
+    writer.write_varint(int(fields["player_id"]))
+    writer.write_varint(int(fields["amount"]))
+
+
+def _encode_player_info_update(writer: Writer, fields: dict[str, Any]) -> None:
+    action_mask = int(fields.get("actions", _PLAYER_INFO_ACTION_ALL))
+    writer.write_byte(action_mask)
+    entries = fields.get("entries", fields.get("players", ()))
+    writer.write_varint(len(entries))
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise TypeError("player info entries must be dicts")
+        profile_uuid = entry["uuid"]
+        if not isinstance(profile_uuid, uuid.UUID):
+            profile_uuid = uuid.UUID(str(profile_uuid))
+        writer.write_uuid(profile_uuid)
+        if action_mask & 0x01:
+            writer.write_string(str(entry["username"]))
+            _encode_profile_properties(writer, entry.get("properties", ()))
+        if action_mask & 0x02:
+            writer.write_bool(False)
+        if action_mask & 0x04:
+            writer.write_varint(int(entry.get("gamemode", 1)))
+        if action_mask & 0x08:
+            writer.write_bool(bool(entry.get("listed", True)))
+        if action_mask & 0x10:
+            writer.write_varint(int(entry.get("latency", 0)))
+        if action_mask & 0x20:
+            display_name = entry.get("display_name")
+            writer.write_bool(display_name is not None)
+            if display_name is not None:
+                writer.write_anonymous_nbt(display_name)
+        if action_mask & 0x40:
+            writer.write_varint(int(entry.get("list_order", 0)))
+        if action_mask & 0x80:
+            writer.write_bool(bool(entry.get("show_hat", True)))
+
+
+def _encode_player_info_remove(writer: Writer, fields: dict[str, Any]) -> None:
+    profile_ids = fields.get("profile_ids", fields.get("uuids", ()))
+    writer.write_varint(len(profile_ids))
+    for profile_uuid in profile_ids:
+        if not isinstance(profile_uuid, uuid.UUID):
+            profile_uuid = uuid.UUID(str(profile_uuid))
+        writer.write_uuid(profile_uuid)
 
 
 def _encode_system_chat(writer: Writer, fields: dict[str, Any]) -> None:
@@ -623,6 +871,70 @@ def _encode_map_chunk(writer: Writer, fields: dict[str, Any]) -> None:
         writer.write_varint(len(arrays))
         for array in arrays:
             writer.write_byte_array(bytes(array))
+
+
+def _encode_lp_vec3(writer: Writer, x: float, y: float, z: float) -> None:
+    x = _sanitize_lp_vec3_component(x)
+    y = _sanitize_lp_vec3_component(y)
+    z = _sanitize_lp_vec3_component(z)
+    max_abs = max(abs(x), abs(y), abs(z))
+    if max_abs < _LP_VEC3_MIN_VALUE:
+        writer.write_byte(0)
+        return
+
+    scale = ceil(max_abs)
+    has_continuation = scale & 0x03 != scale
+    scale_bits = (scale & 0x03) | (0x04 if has_continuation else 0)
+    packed = (
+        scale_bits
+        | (_pack_lp_vec3_component(x / scale) << 3)
+        | (_pack_lp_vec3_component(y / scale) << 18)
+        | (_pack_lp_vec3_component(z / scale) << 33)
+    )
+    writer.write_byte(packed & 0xFF)
+    writer.write_byte((packed >> 8) & 0xFF)
+    writer.write_int(_signed_int32((packed >> 16) & 0xFFFFFFFF))
+    if has_continuation:
+        writer.write_varint(scale >> 2)
+
+
+def _sanitize_lp_vec3_component(value: float) -> float:
+    if not isfinite(value):
+        return 0.0
+    return max(-_LP_VEC3_MAX_ABS_VALUE, min(_LP_VEC3_MAX_ABS_VALUE, value))
+
+
+def _pack_lp_vec3_component(value: float) -> int:
+    return round((value * 0.5 + 0.5) * _LP_VEC3_COMPONENT_SCALE)
+
+
+def _signed_int32(value: int) -> int:
+    if value >= 1 << 31:
+        return value - (1 << 32)
+    return value
+
+
+def _pack_degrees(value: float) -> int:
+    return floor(value * 256.0 / 360.0) & 0xFF
+
+
+def _encode_profile_properties(writer: Writer, properties: object) -> None:
+    if properties is None:
+        writer.write_varint(0)
+        return
+    if not isinstance(properties, tuple | list):
+        raise TypeError("profile properties must be a sequence")
+    writer.write_varint(len(properties))
+    for item in properties:
+        if not isinstance(item, dict):
+            raise TypeError("profile property must be a dict")
+        profile_property = cast(dict[str, object], item)
+        writer.write_string(str(profile_property["name"]))
+        writer.write_string(str(profile_property["value"]))
+        signature = profile_property.get("signature")
+        writer.write_bool(signature is not None)
+        if signature is not None:
+            writer.write_string(str(signature))
 
 
 def _write_spawn_info(writer: Writer, fields: dict[str, Any]) -> None:
@@ -1310,6 +1622,16 @@ def _register(registry: PacketRegistry) -> PacketRegistry:
         PacketType(
             PacketState.PLAY,
             cb,
+            0x01,
+            "clientbound.add_entity",
+            _decode_clientbound_add_entity,
+            _encode_add_entity,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            cb,
             0x04,
             "clientbound.block_changed_ack",
             encoder=_encode_block_changed_ack,
@@ -1365,9 +1687,39 @@ def _register(registry: PacketRegistry) -> PacketRegistry:
         PacketType(
             PacketState.PLAY,
             cb,
+            0x45,
+            "clientbound.player_info_remove",
+            _decode_clientbound_player_info_remove,
+            encoder=_encode_player_info_remove,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            cb,
+            0x46,
+            "clientbound.player_info_update",
+            _decode_clientbound_ignored_payload,
+            encoder=_encode_player_info_update,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            cb,
             0x48,
             "clientbound.position",
             encoder=_encode_player_position,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            cb,
+            0x4D,
+            "clientbound.remove_entities",
+            _decode_clientbound_remove_entities,
+            encoder=_encode_remove_entities,
         )
     )
     register(
@@ -1401,6 +1753,26 @@ def _register(registry: PacketRegistry) -> PacketRegistry:
         PacketType(
             PacketState.PLAY,
             cb,
+            0x63,
+            "clientbound.set_entity_data",
+            _decode_clientbound_set_entity_data,
+            encoder=_encode_set_entity_data,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            cb,
+            0x65,
+            "clientbound.set_entity_motion",
+            _decode_clientbound_set_entity_motion,
+            encoder=_encode_set_entity_motion,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            cb,
             0x69,
             "clientbound.set_held_slot",
             encoder=_encode_set_held_slot,
@@ -1422,6 +1794,26 @@ def _register(registry: PacketRegistry) -> PacketRegistry:
             0x79,
             "clientbound.system_chat",
             encoder=_encode_system_chat,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            cb,
+            0x7C,
+            "clientbound.take_item_entity",
+            _decode_clientbound_take_item_entity,
+            encoder=_encode_take_item_entity,
+        )
+    )
+    register(
+        PacketType(
+            PacketState.PLAY,
+            cb,
+            0x7D,
+            "clientbound.teleport_entity",
+            _decode_clientbound_teleport_entity,
+            encoder=_encode_teleport_entity,
         )
     )
 

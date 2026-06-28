@@ -167,3 +167,10 @@ def block_for_item_id(item_id: int) -> BlockState | None:
     if definition is None or definition.state == AIR:
         return None
     return definition.state
+
+
+def item_id_for_block_state(state: BlockState) -> int | None:
+    definition = BLOCKS.get_by_state(state)
+    if definition is None or definition.state == AIR:
+        return None
+    return definition.item_id
